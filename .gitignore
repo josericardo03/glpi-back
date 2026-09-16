@@ -1,0 +1,16 @@
+# compiled
+dist
+node_modules
+coverage
+
+# env
+.env
+.env.local
+
+# logs
+*.log
+npm-debug.log*
+
+# os
+.DS_Store
+Thumbs.db

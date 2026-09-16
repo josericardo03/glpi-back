@@ -1,0 +1,222 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+enum Role {
+  ADMIN
+  MANAGER
+  TECHNICIAN
+  REQUESTER
+}
+
+enum TicketStatus {
+  NEW
+  TRIAGE
+  OPEN
+  PENDING
+  APPROVAL
+  RESOLVED
+  CLOSED
+}
+
+enum TicketPriority {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum AssetStatus {
+  IN_USE
+  IN_STOCK
+  MAINTENANCE
+  RETIRED
+}
+
+model User {
+  id             String         @id @default(uuid())
+  name           String
+  email          String         @unique
+  passwordHash   String
+  role           Role           @default(REQUESTER)
+  avatarUrl      String?
+  departmentId   String?
+  department     Department?    @relation(fields: [departmentId], references: [id])
+  groups         GroupMember[]
+  tickets        Ticket[]       @relation("RequesterTickets")
+  assignedTickets Ticket[]      @relation("AssigneeTickets")
+  followups      TicketFollowup[]
+  approvals      Approval[]
+  notifications  Notification[]
+  auditLogs      AuditLog[]
+  articles       KnowledgeArticle[]
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+}
+
+model Department {
+  id        String   @id @default(uuid())
+  name      String
+  code      String   @unique
+  users     User[]
+  tickets   Ticket[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Group {
+  id          String        @id @default(uuid())
+  name        String
+  description String?
+  members     GroupMember[]
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+}
+
+model GroupMember {
+  groupId String
+  userId  String
+  group   Group  @relation(fields: [groupId], references: [id])
+  user    User   @relation(fields: [userId], references: [id])
+
+  @@id([groupId, userId])
+}
+
+model Category {
+  id        String   @id @default(uuid())
+  name      String
+  parentId  String?
+  parent    Category?  @relation("CategoryTree", fields: [parentId], references: [id])
+  children  Category[] @relation("CategoryTree")
+  tickets   Ticket[]
+  slaRules  SlaRule[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model SlaRule {
+  id           String         @id @default(uuid())
+  name         String
+  priority     TicketPriority
+  responseMins Int
+  resolveMins  Int
+  categoryId   String?
+  category     Category?      @relation(fields: [categoryId], references: [id])
+  tickets      Ticket[]
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+}
+
+model Ticket {
+  id           String           @id @default(uuid())
+  number       Int              @unique @default(autoincrement())
+  title        String
+  description  String
+  status       TicketStatus     @default(NEW)
+  priority     TicketPriority   @default(MEDIUM)
+  requesterId  String
+  requester    User             @relation("RequesterTickets", fields: [requesterId], references: [id])
+  assigneeId   String?
+  assignee     User?            @relation("AssigneeTickets", fields: [assigneeId], references: [id])
+  departmentId String?
+  department   Department?      @relation(fields: [departmentId], references: [id])
+  categoryId   String?
+  category     Category?        @relation(fields: [categoryId], references: [id])
+  slaRuleId    String?
+  slaRule      SlaRule?         @relation(fields: [slaRuleId], references: [id])
+  assetId      String?
+  asset        Asset?           @relation(fields: [assetId], references: [id])
+  followups    TicketFollowup[]
+  approvals    Approval[]
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
+}
+
+model TicketFollowup {
+  id        String   @id @default(uuid())
+  content   String
+  ticketId  String
+  ticket    Ticket   @relation(fields: [ticketId], references: [id])
+  authorId  String
+  author    User     @relation(fields: [authorId], references: [id])
+  createdAt DateTime @default(now())
+}
+
+model Approval {
+  id         String   @id @default(uuid())
+  status     String   @default("PENDING")
+  comment    String?
+  ticketId   String
+  ticket     Ticket   @relation(fields: [ticketId], references: [id])
+  approverId String
+  approver   User     @relation(fields: [approverId], references: [id])
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+}
+
+model KnowledgeArticle {
+  id          String   @id @default(uuid())
+  title       String
+  content     String
+  published   Boolean  @default(false)
+  authorId    String
+  author      User     @relation(fields: [authorId], references: [id])
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model Asset {
+  id           String      @id @default(uuid())
+  name         String
+  inventoryTag String      @unique
+  type         String
+  status       AssetStatus @default(IN_STOCK)
+  location     String?
+  tickets      Ticket[]
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+}
+
+model Notification {
+  id        String   @id @default(uuid())
+  title     String
+  body      String
+  read      Boolean  @default(false)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  createdAt DateTime @default(now())
+}
+
+model AuditLog {
+  id        String   @id @default(uuid())
+  action    String
+  entity    String
+  entityId  String?
+  metadata  Json?
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id])
+  createdAt DateTime @default(now())
+}
+
+model BrandingConfig {
+  id           String  @id @default(uuid())
+  companyName  String
+  primaryColor String
+  logoUrl      String?
+}
+
+model Integration {
+  id        String   @id @default(uuid())
+  name      String
+  type      String
+  enabled   Boolean  @default(false)
+  config    Json?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
