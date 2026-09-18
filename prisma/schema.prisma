@@ -3,220 +3,655 @@ generator client {
 }
 
 datasource db {
-  provider  = "postgresql"
-  url       = env("DATABASE_URL")
-  directUrl = env("DIRECT_URL")
+  provider = "postgresql"
 }
 
-enum Role {
-  ADMIN
-  MANAGER
-  TECHNICIAN
-  REQUESTER
+model anexos_chamados {
+  id                   Int                   @default(autoincrement())
+  id_cliente           Int
+  id_chamado           Int
+  id_comentario        Int?
+  nome_arquivo         String                @db.VarChar(255)
+  caminho_storage      String                @db.VarChar(512)
+  tipo_mime            String                @db.VarChar(100)
+  tamanho_bytes        BigInt
+  data_upload          DateTime              @default(now()) @db.Timestamptz(6)
+  chamados             chamados              @relation(fields: [id_cliente, id_chamado], references: [id_cliente, id], onDelete: Cascade, onUpdate: NoAction, map: "fk_anexo_chamado")
+  clientes             clientes              @relation(fields: [id_cliente], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_anexo_cliente")
+  comentarios_chamados comentarios_chamados? @relation(fields: [id_cliente, id_comentario], references: [id_cliente, id], onDelete: Cascade, onUpdate: NoAction, map: "fk_anexo_comentario")
+
+  @@id([id_cliente, id], map: "pk_anexos_chamados")
 }
 
-enum TicketStatus {
-  NEW
-  TRIAGE
-  OPEN
-  PENDING
-  APPROVAL
-  RESOLVED
-  CLOSED
+model artigos_kb {
+  id                    Int                    @unique(map: "uq_artigos_kb_id") @default(autoincrement())
+  id_cliente            Int
+  id_categoria          Int
+  titulo                String                 @db.VarChar(255)
+  conteudo              String
+  id_autor              Int
+  status                String                 @default("RASCUNHO") @db.VarChar(20)
+  visualizacoes         Int                    @default(0)
+  data_criacao          DateTime               @default(now()) @db.Timestamptz(6)
+  data_atualizacao      DateTime               @default(now()) @db.Timestamptz(6)
+  usuarios              usuarios               @relation(fields: [id_cliente, id_autor], references: [id_cliente, id], onUpdate: NoAction, map: "fk_art_kb_autor")
+  categorias_artigos_kb categorias_artigos_kb  @relation(fields: [id_cliente, id_categoria], references: [id_cliente, id], onUpdate: NoAction, map: "fk_art_kb_categoria")
+  clientes              clientes               @relation(fields: [id_cliente], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_art_kb_cliente")
+  feedbacks_artigos_kb  feedbacks_artigos_kb[]
+
+  @@id([id_cliente, id], map: "pk_artigos_kb")
+  @@index([id_cliente, id_categoria], map: "idx_artigos_kb_categoria")
 }
 
-enum TicketPriority {
-  LOW
-  MEDIUM
-  HIGH
-  CRITICAL
+model ativos_cmdb {
+  id                           Int                            @unique(map: "uq_ativos_cmdb_id") @default(autoincrement())
+  id_cliente                   Int
+  codigo_patrimonio            String                         @db.VarChar(50)
+  nome                         String                         @db.VarChar(150)
+  tipo_ativo                   String                         @db.VarChar(30)
+  id_usuario_atribuido         Int?
+  status                       String                         @default("ATIVO") @db.VarChar(30)
+  data_aquisicao               DateTime?                      @db.Date
+  data_cadastro                DateTime                       @default(now()) @db.Timestamptz(6)
+  clientes                     clientes                       @relation(fields: [id_cliente], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_ativo_cliente")
+  usuarios                     usuarios?                      @relation(fields: [id_cliente, id_usuario_atribuido], references: [id_cliente, id], onUpdate: NoAction, map: "fk_ativo_usuario")
+  chamados_ativos              chamados_ativos[]
+  especificacoes_ativos        especificacoes_ativos[]
+  historicos_manutencao_ativos historicos_manutencao_ativos[]
+  rels_como_destino            relacionamentos_ativos[]       @relation("ativo_destino")
+  rels_como_origem             relacionamentos_ativos[]       @relation("ativo_origem")
+
+  @@id([id_cliente, id], map: "pk_ativos_cmdb")
+  @@unique([id_cliente, codigo_patrimonio], map: "uq_patrimonio_cliente")
+  @@index([id_cliente, codigo_patrimonio], map: "idx_ativos_patrimonio")
+  @@index([id_cliente, id_usuario_atribuido], map: "idx_ativos_usuario")
 }
 
-enum AssetStatus {
-  IN_USE
-  IN_STOCK
-  MAINTENANCE
-  RETIRED
+model categorias_artigos_kb {
+  id           Int          @unique(map: "uq_categorias_kb_id") @default(autoincrement())
+  id_cliente   Int
+  nome         String       @db.VarChar(100)
+  descricao    String?
+  data_criacao DateTime     @default(now()) @db.Timestamptz(6)
+  artigos_kb   artigos_kb[]
+  clientes     clientes     @relation(fields: [id_cliente], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_cat_kb_cliente")
+
+  @@id([id_cliente, id], map: "pk_categorias_kb")
+  @@unique([id_cliente, nome], map: "uq_cat_kb_nome_cliente")
 }
 
-model User {
-  id             String         @id @default(uuid())
-  name           String
-  email          String         @unique
-  passwordHash   String
-  role           Role           @default(REQUESTER)
-  avatarUrl      String?
-  departmentId   String?
-  department     Department?    @relation(fields: [departmentId], references: [id])
-  groups         GroupMember[]
-  tickets        Ticket[]       @relation("RequesterTickets")
-  assignedTickets Ticket[]      @relation("AssigneeTickets")
-  followups      TicketFollowup[]
-  approvals      Approval[]
-  notifications  Notification[]
-  auditLogs      AuditLog[]
-  articles       KnowledgeArticle[]
-  createdAt      DateTime       @default(now())
-  updatedAt      DateTime       @updatedAt
+model categorias_chamados {
+  id               Int                   @unique(map: "uq_categorias_chamados_id") @default(autoincrement())
+  id_cliente       Int
+  nome             String                @db.VarChar(100)
+  id_categoria_pai Int?
+  tipo_aplicacao   String                @default("AMBOS") @db.VarChar(20)
+  status           String                @default("ATIVO") @db.VarChar(20)
+  data_criacao     DateTime              @default(now()) @db.Timestamptz(6)
+  clientes         clientes              @relation(fields: [id_cliente], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_cat_cliente")
+  categoria_pai    categorias_chamados?  @relation("categoria_pai", fields: [id_cliente, id_categoria_pai], references: [id_cliente, id], onUpdate: NoAction, map: "fk_cat_pai")
+  subcategorias    categorias_chamados[] @relation("categoria_pai")
+  chamados         chamados[]
+
+  @@id([id_cliente, id], map: "pk_categorias_chamados")
 }
 
-model Department {
-  id        String   @id @default(uuid())
-  name      String
-  code      String   @unique
-  users     User[]
-  tickets   Ticket[]
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+model chamados {
+  id                        Int                         @unique(map: "uq_chamados_id") @default(autoincrement())
+  id_cliente                Int
+  id_solicitante            Int
+  id_tecnico_atribuido      Int?
+  id_grupo_responsavel      Int?
+  id_categoria              Int
+  id_politica_sla           Int?
+  titulo                    String                      @db.VarChar(255)
+  descricao                 String
+  tipo                      String                      @db.VarChar(20)
+  origem                    String                      @default("PORTAL") @db.VarChar(20)
+  prioridade                String                      @db.VarChar(20)
+  status                    String                      @default("NOVO") @db.VarChar(30)
+  data_abertura             DateTime                    @default(now()) @db.Timestamptz(6)
+  data_previsao_resolucao   DateTime?                   @db.Timestamptz(6)
+  data_resolucao            DateTime?                   @db.Timestamptz(6)
+  data_fechamento           DateTime?                   @db.Timestamptz(6)
+  resolucao                 String?
+  tempo_acumulado_pausa_s   Int                         @default(0)
+  sla_vencido               Boolean                     @default(false)
+  anexos_chamados           anexos_chamados[]
+  categoria                 categorias_chamados         @relation(fields: [id_cliente, id_categoria], references: [id_cliente, id], onUpdate: NoAction, map: "fk_chamado_categoria")
+  cliente                   clientes                    @relation(fields: [id_cliente], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_chamado_cliente")
+  grupo                     grupos_suporte?             @relation(fields: [id_cliente, id_grupo_responsavel], references: [id_cliente, id], onUpdate: NoAction, map: "fk_chamado_grupo")
+  politica_sla              politicas_sla?              @relation(fields: [id_cliente, id_politica_sla], references: [id_cliente, id], onUpdate: NoAction, map: "fk_chamado_sla")
+  solicitante               usuarios                    @relation("solicitante", fields: [id_cliente, id_solicitante], references: [id_cliente, id], onUpdate: NoAction, map: "fk_chamado_solicitante")
+  tecnico                   usuarios?                   @relation("tecnico", fields: [id_cliente, id_tecnico_atribuido], references: [id_cliente, id], onUpdate: NoAction, map: "fk_chamado_tecnico")
+  chamados_ativos           chamados_ativos[]
+  chamados_problemas        chamados_problemas[]
+  comentarios_chamados      comentarios_chamados[]
+  historico_status_chamados historico_status_chamados[]
+  mudancas_chamados         mudancas_chamados[]
+  pausas_sla                pausas_sla[]
+  pesquisas_csat            pesquisas_csat?
+  requisicoes_aprovacao     requisicoes_aprovacao[]
+  worklogs                  worklogs[]
+
+  @@id([id_cliente, id], map: "pk_chamados")
+  @@index([id_cliente, id_categoria], map: "idx_chamados_cliente_categoria")
+  @@index([id_cliente, id_grupo_responsavel], map: "idx_chamados_cliente_grupo")
+  @@index([id_cliente, id_solicitante], map: "idx_chamados_cliente_solicitante")
+  @@index([id_cliente, status, prioridade], map: "idx_chamados_cliente_status_prioridade")
+  @@index([id_cliente, id_tecnico_atribuido], map: "idx_chamados_cliente_tecnico")
 }
 
-model Group {
-  id          String        @id @default(uuid())
-  name        String
-  description String?
-  members     GroupMember[]
-  createdAt   DateTime      @default(now())
-  updatedAt   DateTime      @updatedAt
+model chamados_ativos {
+  id_cliente  Int
+  id_chamado  Int
+  id_ativo    Int
+  ativos_cmdb ativos_cmdb @relation(fields: [id_cliente, id_ativo], references: [id_cliente, id], onDelete: Cascade, onUpdate: NoAction, map: "fk_ca_ativo")
+  chamados    chamados    @relation(fields: [id_cliente, id_chamado], references: [id_cliente, id], onDelete: Cascade, onUpdate: NoAction, map: "fk_ca_chamado")
+  clientes    clientes    @relation(fields: [id_cliente], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_ca_cliente")
+
+  @@id([id_cliente, id_chamado, id_ativo], map: "pk_chamados_ativos")
 }
 
-model GroupMember {
-  groupId String
-  userId  String
-  group   Group  @relation(fields: [groupId], references: [id])
-  user    User   @relation(fields: [userId], references: [id])
+model chamados_problemas {
+  id_cliente   Int
+  id_chamado   Int
+  id_problema  Int
+  data_vinculo DateTime  @default(now()) @db.Timestamptz(6)
+  chamados     chamados  @relation(fields: [id_cliente, id_chamado], references: [id_cliente, id], onDelete: Cascade, onUpdate: NoAction, map: "fk_cp_chamado")
+  clientes     clientes  @relation(fields: [id_cliente], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_cp_cliente")
+  problemas    problemas @relation(fields: [id_cliente, id_problema], references: [id_cliente, id], onDelete: Cascade, onUpdate: NoAction, map: "fk_cp_problema")
 
-  @@id([groupId, userId])
+  @@id([id_cliente, id_chamado, id_problema], map: "pk_chamados_problemas")
 }
 
-model Category {
-  id        String   @id @default(uuid())
-  name      String
-  parentId  String?
-  parent    Category?  @relation("CategoryTree", fields: [parentId], references: [id])
-  children  Category[] @relation("CategoryTree")
-  tickets   Ticket[]
-  slaRules  SlaRule[]
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+model clientes {
+  id                           Int                            @id(map: "pk_clientes") @default(autoincrement())
+  razao_social                 String                         @db.VarChar(150)
+  nome_fantasia                String                         @db.VarChar(100)
+  cnpj                         String                         @unique(map: "uq_clientes_cnpj") @db.VarChar(18)
+  status                       String                         @default("ATIVO") @db.VarChar(20)
+  data_contratacao             DateTime                       @default(now()) @db.Timestamptz(6)
+  anexos_chamados              anexos_chamados[]
+  artigos_kb                   artigos_kb[]
+  ativos_cmdb                  ativos_cmdb[]
+  categorias_artigos_kb        categorias_artigos_kb[]
+  categorias_chamados          categorias_chamados[]
+  chamados                     chamados[]
+  chamados_ativos              chamados_ativos[]
+  chamados_problemas           chamados_problemas[]
+  comentarios_chamados         comentarios_chamados[]
+  configuracoes_branding       configuracoes_branding?
+  departamentos                departamentos[]
+  especificacoes_ativos        especificacoes_ativos[]
+  feedbacks_artigos_kb         feedbacks_artigos_kb[]
+  feriados                     feriados[]
+  grupos_suporte               grupos_suporte[]
+  historico_integracoes        historico_integracoes[]
+  historico_status_chamados    historico_status_chamados[]
+  historicos_manutencao_ativos historicos_manutencao_ativos[]
+  horarios_comerciais          horarios_comerciais[]
+  integracoes                  integracoes[]
+  intervalos_horarios          intervalos_horarios[]
+  logs_auditoria               logs_auditoria[]
+  membros_grupos               membros_grupos[]
+  mudancas                     mudancas[]
+  mudancas_chamados            mudancas_chamados[]
+  mudancas_problemas           mudancas_problemas[]
+  notificacoes                 notificacoes[]
+  pausas_sla                   pausas_sla[]
+  pesquisas_csat               pesquisas_csat[]
+  politicas_sla                politicas_sla[]
+  problemas                    problemas[]
+  relacionamentos_ativos       relacionamentos_ativos[]
+  requisicoes_aprovacao        requisicoes_aprovacao[]
+  usuarios                     usuarios[]
+  worklogs                     worklogs[]
 }
 
-model SlaRule {
-  id           String         @id @default(uuid())
-  name         String
-  priority     TicketPriority
-  responseMins Int
-  resolveMins  Int
-  categoryId   String?
-  category     Category?      @relation(fields: [categoryId], references: [id])
-  tickets      Ticket[]
-  createdAt    DateTime       @default(now())
-  updatedAt    DateTime       @updatedAt
+model comentarios_chamados {
+  id                Int               @unique(map: "uq_comentarios_chamados_id") @default(autoincrement())
+  id_cliente        Int
+  id_chamado        Int
+  id_autor          Int
+  mensagem          String
+  tipo_visibilidade String            @default("PUBLICO") @db.VarChar(20)
+  data_criacao      DateTime          @default(now()) @db.Timestamptz(6)
+  anexos_chamados   anexos_chamados[]
+  usuarios          usuarios          @relation(fields: [id_cliente, id_autor], references: [id_cliente, id], onUpdate: NoAction, map: "fk_com_autor")
+  chamados          chamados          @relation(fields: [id_cliente, id_chamado], references: [id_cliente, id], onDelete: Cascade, onUpdate: NoAction, map: "fk_com_chamado")
+  clientes          clientes          @relation(fields: [id_cliente], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_com_cliente")
+
+  @@id([id_cliente, id], map: "pk_comentarios_chamados")
 }
 
-model Ticket {
-  id           String           @id @default(uuid())
-  number       Int              @unique @default(autoincrement())
-  title        String
-  description  String
-  status       TicketStatus     @default(NEW)
-  priority     TicketPriority   @default(MEDIUM)
-  requesterId  String
-  requester    User             @relation("RequesterTickets", fields: [requesterId], references: [id])
-  assigneeId   String?
-  assignee     User?            @relation("AssigneeTickets", fields: [assigneeId], references: [id])
-  departmentId String?
-  department   Department?      @relation(fields: [departmentId], references: [id])
-  categoryId   String?
-  category     Category?        @relation(fields: [categoryId], references: [id])
-  slaRuleId    String?
-  slaRule      SlaRule?         @relation(fields: [slaRuleId], references: [id])
-  assetId      String?
-  asset        Asset?           @relation(fields: [assetId], references: [id])
-  followups    TicketFollowup[]
-  approvals    Approval[]
-  createdAt    DateTime         @default(now())
-  updatedAt    DateTime         @updatedAt
+model configuracoes_branding {
+  id             Int      @default(autoincrement())
+  id_cliente     Int      @unique(map: "uq_branding_cliente")
+  logo_url       String?  @db.VarChar(255)
+  cor_primaria   String?  @default("#0056B3") @db.VarChar(7)
+  cor_secundaria String?  @default("#6C757D") @db.VarChar(7)
+  cor_fundo      String?  @default("#F4F6F9") @db.VarChar(7)
+  nome_portal    String?  @default("Service Desk") @db.VarChar(100)
+  clientes       clientes @relation(fields: [id_cliente], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_branding_cliente")
+
+  @@id([id_cliente, id], map: "pk_branding")
 }
 
-model TicketFollowup {
-  id        String   @id @default(uuid())
-  content   String
-  ticketId  String
-  ticket    Ticket   @relation(fields: [ticketId], references: [id])
-  authorId  String
-  author    User     @relation(fields: [authorId], references: [id])
-  createdAt DateTime @default(now())
+model departamentos {
+  id                  Int             @unique(map: "uq_departamentos_id") @default(autoincrement())
+  id_cliente          Int
+  codigo_sigla        String          @db.VarChar(20)
+  nome                String          @db.VarChar(100)
+  id_responsavel      Int?
+  id_departamento_pai Int?
+  status              String          @default("ATIVO") @db.VarChar(20)
+  data_criacao        DateTime        @default(now()) @db.Timestamptz(6)
+  clientes            clientes        @relation(fields: [id_cliente], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_depto_cliente")
+  pai                 departamentos?  @relation("departamento_pai", fields: [id_cliente, id_departamento_pai], references: [id_cliente, id], onUpdate: NoAction, map: "fk_depto_pai")
+  filhos              departamentos[] @relation("departamento_pai")
+  responsavel         usuarios?       @relation("responsavel", fields: [id_cliente, id_responsavel], references: [id_cliente, id], onUpdate: NoAction, map: "fk_depto_responsavel")
+  usuarios            usuarios[]      @relation("departamento")
+
+  @@id([id_cliente, id], map: "pk_departamentos")
+  @@unique([id_cliente, codigo_sigla], map: "uq_sigla_por_cliente")
 }
 
-model Approval {
-  id         String   @id @default(uuid())
-  status     String   @default("PENDING")
-  comment    String?
-  ticketId   String
-  ticket     Ticket   @relation(fields: [ticketId], references: [id])
-  approverId String
-  approver   User     @relation(fields: [approverId], references: [id])
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
+model especificacoes_ativos {
+  id                Int         @default(autoincrement())
+  id_cliente        Int
+  id_ativo          Int
+  chave_propriedade String      @db.VarChar(100)
+  valor             String      @db.VarChar(255)
+  ativos_cmdb       ativos_cmdb @relation(fields: [id_cliente, id_ativo], references: [id_cliente, id], onDelete: Cascade, onUpdate: NoAction, map: "fk_espec_ativo")
+  clientes          clientes    @relation(fields: [id_cliente], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_espec_cliente")
+
+  @@id([id_cliente, id], map: "pk_especificacoes")
+  @@unique([id_cliente, id_ativo, chave_propriedade], map: "uq_espec_propriedade_cliente")
 }
 
-model KnowledgeArticle {
-  id          String   @id @default(uuid())
-  title       String
-  content     String
-  published   Boolean  @default(false)
-  authorId    String
-  author      User     @relation(fields: [authorId], references: [id])
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+model feedbacks_artigos_kb {
+  id           Int        @default(autoincrement())
+  id_cliente   Int
+  id_artigo    Int
+  id_usuario   Int
+  util         Boolean
+  comentario   String?
+  data_criacao DateTime   @default(now()) @db.Timestamptz(6)
+  artigos_kb   artigos_kb @relation(fields: [id_cliente, id_artigo], references: [id_cliente, id], onDelete: Cascade, onUpdate: NoAction, map: "fk_fb_kb_artigo")
+  clientes     clientes   @relation(fields: [id_cliente], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_fb_kb_cliente")
+  usuarios     usuarios   @relation(fields: [id_cliente, id_usuario], references: [id_cliente, id], onDelete: Cascade, onUpdate: NoAction, map: "fk_fb_kb_usuario")
+
+  @@id([id_cliente, id], map: "pk_feedbacks_kb")
+  @@unique([id_cliente, id_artigo, id_usuario], map: "uq_feedback_usuario")
 }
 
-model Asset {
-  id           String      @id @default(uuid())
-  name         String
-  inventoryTag String      @unique
-  type         String
-  status       AssetStatus @default(IN_STOCK)
-  location     String?
-  tickets      Ticket[]
-  createdAt    DateTime    @default(now())
-  updatedAt    DateTime    @updatedAt
+model feriados {
+  id         Int      @default(autoincrement())
+  id_cliente Int
+  nome       String   @db.VarChar(100)
+  dia        Int
+  mes        Int
+  ano        Int?
+  clientes   clientes @relation(fields: [id_cliente], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_feriados_cliente")
+
+  @@id([id_cliente, id], map: "pk_feriados")
 }
 
-model Notification {
-  id        String   @id @default(uuid())
-  title     String
-  body      String
-  read      Boolean  @default(false)
-  userId    String
-  user      User     @relation(fields: [userId], references: [id])
-  createdAt DateTime @default(now())
+model grupos_suporte {
+  id             Int              @unique(map: "uq_grupos_suporte_id") @default(autoincrement())
+  id_cliente     Int
+  nome           String           @db.VarChar(100)
+  descricao      String?
+  status         String           @default("ATIVO") @db.VarChar(20)
+  data_criacao   DateTime         @default(now()) @db.Timestamptz(6)
+  chamados       chamados[]
+  clientes       clientes         @relation(fields: [id_cliente], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_grupo_cliente")
+  membros_grupos membros_grupos[]
+
+  @@id([id_cliente, id], map: "pk_grupos_suporte")
+  @@unique([id_cliente, nome], map: "uq_nome_grupo_por_cliente")
 }
 
-model AuditLog {
-  id        String   @id @default(uuid())
-  action    String
-  entity    String
-  entityId  String?
-  metadata  Json?
-  userId    String?
-  user      User?    @relation(fields: [userId], references: [id])
-  createdAt DateTime @default(now())
+model historico_integracoes {
+  id            Int         @default(autoincrement())
+  id_cliente    Int
+  id_integracao Int
+  tipo_evento   String      @db.VarChar(50)
+  status        String      @db.VarChar(20)
+  dados_log     String?
+  data_execucao DateTime    @default(now()) @db.Timestamptz(6)
+  clientes      clientes    @relation(fields: [id_cliente], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_log_cliente")
+  integracoes   integracoes @relation(fields: [id_cliente, id_integracao], references: [id_cliente, id], onDelete: Cascade, onUpdate: NoAction, map: "fk_log_integracao")
+
+  @@id([id_cliente, id], map: "pk_historico_integracoes")
 }
 
-model BrandingConfig {
-  id           String  @id @default(uuid())
-  companyName  String
-  primaryColor String
-  logoUrl      String?
+model historico_status_chamados {
+  id                  Int          @unique(map: "uq_historico_status_id") @default(autoincrement())
+  id_cliente          Int
+  id_chamado          Int
+  status_anterior     String?      @db.VarChar(30)
+  status_novo         String       @db.VarChar(30)
+  id_usuario_alterou  Int
+  data_alteracao      DateTime     @default(now()) @db.Timestamptz(6)
+  tempo_no_status_seg Int?
+  chamados            chamados     @relation(fields: [id_cliente, id_chamado], references: [id_cliente, id], onDelete: Cascade, onUpdate: NoAction, map: "fk_hist_chamado")
+  clientes            clientes     @relation(fields: [id_cliente], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_hist_cliente")
+  usuarios            usuarios     @relation(fields: [id_cliente, id_usuario_alterou], references: [id_cliente, id], onUpdate: NoAction, map: "fk_hist_usuario")
+  pausas_sla          pausas_sla[]
+
+  @@id([id_cliente, id], map: "pk_historico_status")
+  @@index([id_cliente, id_chamado, data_alteracao], map: "idx_hist_status_chamado_composto")
 }
 
-model Integration {
-  id        String   @id @default(uuid())
-  name      String
-  type      String
-  enabled   Boolean  @default(false)
-  config    Json?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+model historicos_manutencao_ativos {
+  id                Int         @default(autoincrement())
+  id_cliente        Int
+  id_ativo          Int
+  id_tecnico        Int
+  descricao_servico String
+  custo_manutencao  Decimal     @default(0.00) @db.Decimal(10, 2)
+  data_inicio       DateTime    @db.Timestamptz(6)
+  data_fim          DateTime?   @db.Timestamptz(6)
+  ativos_cmdb       ativos_cmdb @relation(fields: [id_cliente, id_ativo], references: [id_cliente, id], onDelete: Cascade, onUpdate: NoAction, map: "fk_manut_ativo")
+  clientes          clientes    @relation(fields: [id_cliente], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_manut_cliente")
+  usuarios          usuarios    @relation(fields: [id_cliente, id_tecnico], references: [id_cliente, id], onUpdate: NoAction, map: "fk_manut_tecnico")
+
+  @@id([id_cliente, id], map: "pk_historico_manutencao")
+}
+
+model horarios_comerciais {
+  id                  Int                   @unique(map: "uq_horarios_comerciais_id") @default(autoincrement())
+  id_cliente          Int
+  nome                String                @db.VarChar(100)
+  fuso_horario        String                @default("America/Cuiaba") @db.VarChar(50)
+  status              String                @default("ATIVO") @db.VarChar(20)
+  data_criacao        DateTime              @default(now()) @db.Timestamptz(6)
+  clientes            clientes              @relation(fields: [id_cliente], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_hc_cliente")
+  intervalos_horarios intervalos_horarios[]
+  politicas_sla       politicas_sla[]
+
+  @@id([id_cliente, id], map: "pk_horarios_comerciais")
+}
+
+model integracoes {
+  id                    Int                     @unique(map: "uq_integracoes_id") @default(autoincrement())
+  id_cliente            Int
+  nome                  String                  @db.VarChar(100)
+  tipo                  String                  @db.VarChar(50)
+  configuracoes         Json
+  status                String                  @default("ATIVO") @db.VarChar(20)
+  data_criacao          DateTime                @default(now()) @db.Timestamptz(6)
+  historico_integracoes historico_integracoes[]
+  clientes              clientes                @relation(fields: [id_cliente], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_integracoes_cliente")
+
+  @@id([id_cliente, id], map: "pk_integracoes")
+  @@unique([id_cliente, nome], map: "uq_nome_integracao_cliente")
+}
+
+model intervalos_horarios {
+  id                   Int                 @default(autoincrement())
+  id_cliente           Int
+  id_horario_comercial Int
+  dia_semana           Int
+  hora_inicio          DateTime            @db.Time(6)
+  hora_fim             DateTime            @db.Time(6)
+  clientes             clientes            @relation(fields: [id_cliente], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_ih_cliente")
+  horarios_comerciais  horarios_comerciais @relation(fields: [id_cliente, id_horario_comercial], references: [id_cliente, id], onDelete: Cascade, onUpdate: NoAction, map: "fk_ih_horario")
+
+  @@id([id_cliente, id], map: "pk_intervalos_horarios")
+}
+
+model logs_auditoria {
+  id             Int       @default(autoincrement())
+  id_cliente     Int
+  id_usuario     Int?
+  acao           String    @db.VarChar(100)
+  tabela_afetada String    @db.VarChar(100)
+  registro_id    Int?
+  valor_anterior Json?
+  valor_novo     Json?
+  endereco_ip    String?   @db.VarChar(45)
+  data_criacao   DateTime  @default(now()) @db.Timestamptz(6)
+  clientes       clientes  @relation(fields: [id_cliente], references: [id], onUpdate: NoAction, map: "fk_auditoria_cliente")
+  usuarios       usuarios? @relation(fields: [id_cliente, id_usuario], references: [id_cliente, id], onUpdate: NoAction, map: "fk_auditoria_usuario")
+
+  @@id([id_cliente, id], map: "pk_logs_auditoria")
+  @@index([id_cliente, data_criacao], map: "idx_logs_auditoria_composto")
+}
+
+model membros_grupos {
+  id                  Int            @default(autoincrement())
+  id_cliente          Int
+  id_grupo            Int
+  id_usuario          Int
+  cargo_especialidade String?        @db.VarChar(100)
+  carga_trabalho_max  Int            @default(100)
+  data_associacao     DateTime       @default(now()) @db.Timestamptz(6)
+  clientes            clientes       @relation(fields: [id_cliente], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_membros_cliente")
+  grupos_suporte      grupos_suporte @relation(fields: [id_cliente, id_grupo], references: [id_cliente, id], onDelete: Cascade, onUpdate: NoAction, map: "fk_membros_grupo")
+  usuarios            usuarios       @relation(fields: [id_cliente, id_usuario], references: [id_cliente, id], onDelete: Cascade, onUpdate: NoAction, map: "fk_membros_usuario")
+
+  @@id([id_cliente, id], map: "pk_membros_grupos")
+  @@unique([id_cliente, id_grupo, id_usuario], map: "uq_membro_grupo")
+}
+
+model mudancas {
+  id                    Int                     @unique(map: "uq_mudancas_id") @default(autoincrement())
+  id_cliente            Int
+  titulo                String                  @db.VarChar(255)
+  descricao             String
+  justificativa         String
+  plano_impacto         String
+  plano_testes          String
+  plano_retorno         String
+  tipo_mudanca          String                  @db.VarChar(20)
+  id_solicitante        Int
+  status                String                  @default("RASCUNHO") @db.VarChar(30)
+  janela_inicio         DateTime                @db.Timestamptz(6)
+  janela_fim            DateTime                @db.Timestamptz(6)
+  data_criacao          DateTime                @default(now()) @db.Timestamptz(6)
+  clientes              clientes                @relation(fields: [id_cliente], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_mud_cliente")
+  usuarios              usuarios                @relation(fields: [id_cliente, id_solicitante], references: [id_cliente, id], onUpdate: NoAction, map: "fk_mud_solicitante")
+  mudancas_chamados     mudancas_chamados[]
+  mudancas_problemas    mudancas_problemas[]
+  requisicoes_aprovacao requisicoes_aprovacao[]
+
+  @@id([id_cliente, id], map: "pk_mudancas")
+}
+
+model mudancas_chamados {
+  id_cliente   Int
+  id_mudanca   Int
+  id_chamado   Int
+  data_vinculo DateTime @default(now()) @db.Timestamptz(6)
+  chamados     chamados @relation(fields: [id_cliente, id_chamado], references: [id_cliente, id], onDelete: Cascade, onUpdate: NoAction, map: "fk_mc_chamado")
+  clientes     clientes @relation(fields: [id_cliente], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_mc_cliente")
+  mudancas     mudancas @relation(fields: [id_cliente, id_mudanca], references: [id_cliente, id], onDelete: Cascade, onUpdate: NoAction, map: "fk_mc_mudanca")
+
+  @@id([id_cliente, id_mudanca, id_chamado], map: "pk_mudancas_chamados")
+}
+
+model mudancas_problemas {
+  id_cliente   Int
+  id_mudanca   Int
+  id_problema  Int
+  data_vinculo DateTime  @default(now()) @db.Timestamptz(6)
+  clientes     clientes  @relation(fields: [id_cliente], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_mp_cliente")
+  mudancas     mudancas  @relation(fields: [id_cliente, id_mudanca], references: [id_cliente, id], onDelete: Cascade, onUpdate: NoAction, map: "fk_mp_mudanca")
+  problemas    problemas @relation(fields: [id_cliente, id_problema], references: [id_cliente, id], onDelete: Cascade, onUpdate: NoAction, map: "fk_mp_problema")
+
+  @@id([id_cliente, id_mudanca, id_problema], map: "pk_mudancas_problemas")
+}
+
+model notificacoes {
+  id           Int      @default(autoincrement())
+  id_cliente   Int
+  id_usuario   Int
+  titulo       String   @db.VarChar(150)
+  mensagem     String
+  lida         Boolean  @default(false)
+  data_criacao DateTime @default(now()) @db.Timestamptz(6)
+  clientes     clientes @relation(fields: [id_cliente], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_notif_cliente")
+  usuarios     usuarios @relation(fields: [id_cliente, id_usuario], references: [id_cliente, id], onDelete: Cascade, onUpdate: NoAction, map: "fk_notif_usuario")
+
+  @@id([id_cliente, id], map: "pk_notificacoes")
+}
+
+model pausas_sla {
+  id                        Int                       @default(autoincrement())
+  id_cliente                Int
+  id_chamado                Int
+  id_historico_origem       Int
+  motivo_pausa              String                    @db.VarChar(50)
+  data_pausa                DateTime                  @default(now()) @db.Timestamptz(6)
+  data_retomada             DateTime?                 @db.Timestamptz(6)
+  tempo_pausado_seg         Int?
+  chamados                  chamados                  @relation(fields: [id_cliente, id_chamado], references: [id_cliente, id], onDelete: Cascade, onUpdate: NoAction, map: "fk_pausa_chamado")
+  clientes                  clientes                  @relation(fields: [id_cliente], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_pausa_cliente")
+  historico_status_chamados historico_status_chamados @relation(fields: [id_cliente, id_historico_origem], references: [id_cliente, id], onDelete: Cascade, onUpdate: NoAction, map: "fk_pausa_hist")
+
+  @@id([id_cliente, id], map: "pk_pausas_sla")
+}
+
+model pesquisas_csat {
+  id              Int      @default(autoincrement())
+  id_cliente      Int
+  id_chamado      Int
+  id_solicitante  Int
+  nota_satisfacao Int
+  comentarios     String?
+  data_resposta   DateTime @default(now()) @db.Timestamptz(6)
+  chamados        chamados @relation(fields: [id_cliente, id_chamado], references: [id_cliente, id], onDelete: Cascade, onUpdate: NoAction, map: "fk_csat_chamado")
+  clientes        clientes @relation(fields: [id_cliente], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_csat_cliente")
+  usuarios        usuarios @relation(fields: [id_cliente, id_solicitante], references: [id_cliente, id], onUpdate: NoAction, map: "fk_csat_usuario")
+
+  @@id([id_cliente, id], map: "pk_pesquisas_csat")
+  @@unique([id_cliente, id_chamado], map: "uq_csat_chamado")
+}
+
+model politicas_sla {
+  id                   Int                 @unique(map: "uq_politicas_sla_id") @default(autoincrement())
+  id_cliente           Int
+  nome                 String              @db.VarChar(100)
+  prioridade_alvo      String              @db.VarChar(20)
+  tipo_chamado_alvo    String              @db.VarChar(20)
+  tempo_resposta_min   Int
+  tempo_resolucao_min  Int
+  id_horario_comercial Int
+  status               String              @default("ATIVO") @db.VarChar(20)
+  chamados             chamados[]
+  clientes             clientes            @relation(fields: [id_cliente], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_sla_cliente")
+  horarios_comerciais  horarios_comerciais @relation(fields: [id_cliente, id_horario_comercial], references: [id_cliente, id], onUpdate: NoAction, map: "fk_sla_horario")
+
+  @@id([id_cliente, id], map: "pk_politicas_sla")
+}
+
+model problemas {
+  id                   Int                  @unique(map: "uq_problemas_id") @default(autoincrement())
+  id_cliente           Int
+  titulo               String               @db.VarChar(255)
+  descricao            String
+  id_tecnico_atribuido Int?
+  causa_raiz           String?
+  solucao_contorno     String?
+  status               String               @default("SOB_INVESTIGACAO") @db.VarChar(30)
+  prioridade           String               @db.VarChar(20)
+  data_identificacao   DateTime             @default(now()) @db.Timestamptz(6)
+  data_resolucao       DateTime?            @db.Timestamptz(6)
+  chamados_problemas   chamados_problemas[]
+  mudancas_problemas   mudancas_problemas[]
+  clientes             clientes             @relation(fields: [id_cliente], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_prob_cliente")
+  usuarios             usuarios?            @relation(fields: [id_cliente, id_tecnico_atribuido], references: [id_cliente, id], onUpdate: NoAction, map: "fk_prob_tecnico")
+
+  @@id([id_cliente, id], map: "pk_problemas")
+}
+
+model relacionamentos_ativos {
+  id_cliente          Int
+  id_ativo_origem     Int
+  id_ativo_destino    Int
+  tipo_relacionamento String      @db.VarChar(50)
+  data_criacao        DateTime    @default(now()) @db.Timestamptz(6)
+  clientes            clientes    @relation(fields: [id_cliente], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_ra_cliente")
+  destino             ativos_cmdb @relation("ativo_destino", fields: [id_cliente, id_ativo_destino], references: [id_cliente, id], onDelete: Cascade, onUpdate: NoAction, map: "fk_ra_destino")
+  origem              ativos_cmdb @relation("ativo_origem", fields: [id_cliente, id_ativo_origem], references: [id_cliente, id], onDelete: Cascade, onUpdate: NoAction, map: "fk_ra_origem")
+
+  @@id([id_cliente, id_ativo_origem, id_ativo_destino], map: "pk_relacionamentos_ativos")
+}
+
+model requisicoes_aprovacao {
+  id                      Int       @default(autoincrement())
+  id_cliente              Int
+  id_chamado              Int?
+  id_mudanca              Int?
+  id_solicitante          Int
+  id_aprovador            Int
+  descricao               String
+  status                  String    @default("PENDENTE") @db.VarChar(20)
+  justificativa_aprovador String?
+  data_solicitacao        DateTime  @default(now()) @db.Timestamptz(6)
+  data_decisao            DateTime? @db.Timestamptz(6)
+  aprovador               usuarios  @relation("aprovador", fields: [id_cliente, id_aprovador], references: [id_cliente, id], onUpdate: NoAction, map: "fk_aprov_aprovador")
+  chamados                chamados? @relation(fields: [id_cliente, id_chamado], references: [id_cliente, id], onDelete: Cascade, onUpdate: NoAction, map: "fk_aprov_chamado")
+  clientes                clientes  @relation(fields: [id_cliente], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_aprov_cliente")
+  mudancas                mudancas? @relation(fields: [id_cliente, id_mudanca], references: [id_cliente, id], onDelete: Cascade, onUpdate: NoAction, map: "fk_aprov_mudanca")
+  solicitante             usuarios  @relation("solicitante_aprovacao", fields: [id_cliente, id_solicitante], references: [id_cliente, id], onUpdate: NoAction, map: "fk_aprov_solicitante")
+
+  @@id([id_cliente, id], map: "pk_requisicoes_aprovacao")
+}
+
+model usuarios {
+  id                           Int                            @unique(map: "uq_usuarios_id") @default(autoincrement())
+  id_cliente                   Int
+  nome                         String                         @db.VarChar(100)
+  email                        String                         @db.Citext
+  senha_hash                   String                         @db.VarChar(255)
+  id_departamento              Int?
+  cargo                        String                         @db.VarChar(100)
+  perfil                       String                         @db.VarChar(20)
+  status                       String                         @default("ATIVO") @db.VarChar(20)
+  avatar_url                   String?                        @db.VarChar(255)
+  data_cadastro                DateTime                       @default(now()) @db.Timestamptz(6)
+  ultimo_login                 DateTime?                      @db.Timestamptz(6)
+  artigos_kb                   artigos_kb[]
+  ativos_cmdb                  ativos_cmdb[]
+  chamados_abertos             chamados[]                     @relation("solicitante")
+  chamados_atribuidos          chamados[]                     @relation("tecnico")
+  comentarios_chamados         comentarios_chamados[]
+  depto_como_responsavel       departamentos[]                @relation("responsavel")
+  feedbacks_artigos_kb         feedbacks_artigos_kb[]
+  historico_status_chamados    historico_status_chamados[]
+  historicos_manutencao_ativos historicos_manutencao_ativos[]
+  logs_auditoria               logs_auditoria[]
+  membros_grupos               membros_grupos[]
+  mudancas                     mudancas[]
+  notificacoes                 notificacoes[]
+  pesquisas_csat               pesquisas_csat[]
+  problemas                    problemas[]
+  aprovacoes_como_aprovador    requisicoes_aprovacao[]        @relation("aprovador")
+  aprovacoes_como_solicitante  requisicoes_aprovacao[]        @relation("solicitante_aprovacao")
+  clientes                     clientes                       @relation(fields: [id_cliente], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_usuario_cliente")
+  departamento                 departamentos?                 @relation("departamento", fields: [id_cliente, id_departamento], references: [id_cliente, id], onUpdate: NoAction, map: "fk_usuario_depto")
+  worklogs                     worklogs[]
+
+  @@id([id_cliente, id], map: "pk_usuarios")
+  @@unique([id_cliente, email], map: "uq_email_por_cliente")
+}
+
+model worklogs {
+  id                   Int      @default(autoincrement())
+  id_cliente           Int
+  id_chamado           Int
+  id_tecnico           Int
+  descricao_atividade  String
+  tempo_trabalhado_min Int
+  data_execucao        DateTime @db.Timestamptz(6)
+  data_registro        DateTime @default(now()) @db.Timestamptz(6)
+  chamados             chamados @relation(fields: [id_cliente, id_chamado], references: [id_cliente, id], onDelete: Cascade, onUpdate: NoAction, map: "fk_wl_chamado")
+  clientes             clientes @relation(fields: [id_cliente], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_wl_cliente")
+  usuarios             usuarios @relation(fields: [id_cliente, id_tecnico], references: [id_cliente, id], onUpdate: NoAction, map: "fk_wl_tecnico")
+
+  @@id([id_cliente, id], map: "pk_worklogs")
 }

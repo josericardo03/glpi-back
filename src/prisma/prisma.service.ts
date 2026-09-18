@@ -1,4 +1,5 @@
 import { Injectable, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
+import { PrismaPg } from '@prisma/adapter-pg';
 import { PrismaClient } from '@prisma/client';
 
 @Injectable()
@@ -6,20 +7,16 @@ export class PrismaService
   extends PrismaClient
   implements OnModuleInit, OnModuleDestroy
 {
-  async onModuleInit() {
-    try {
-      await Promise.race([
-        this.$connect(),
-        new Promise((_, reject) =>
-          setTimeout(() => reject(new Error('Prisma connect timeout')), 2500),
-        ),
-      ]);
-    } catch (error) {
-      console.warn(
-        'Prisma não conectou no Postgres (pooler). A API segue via Data API do Supabase.',
-        error instanceof Error ? error.message : error,
-      );
+  constructor() {
+    const url = process.env.DATABASE_URL;
+    if (!url) {
+      throw new Error('DATABASE_URL não definida');
     }
+    super({ adapter: new PrismaPg(url) });
+  }
+
+  async onModuleInit() {
+    await this.$connect();
   }
 
   async onModuleDestroy() {
