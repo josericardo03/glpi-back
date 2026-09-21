@@ -4,12 +4,16 @@ import { join } from 'node:path';
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import pg from 'pg';
+import { SeedService } from './seed.service.js';
 
 @Injectable()
 export class SchemaBootstrapService implements OnModuleInit {
   private readonly logger = new Logger(SchemaBootstrapService.name);
 
-  constructor(private readonly config: ConfigService) {}
+  constructor(
+    private readonly config: ConfigService,
+    private readonly seed: SeedService,
+  ) {}
 
   async onModuleInit() {
     if (process.env.VITEST === 'true') {
@@ -27,6 +31,7 @@ export class SchemaBootstrapService implements OnModuleInit {
     const sqlPath = join(process.cwd(), 'prisma', 'sql', 'itsm-schema-v7.sql');
     if (!existsSync(sqlPath)) {
       this.logger.warn(`Arquivo SQL não encontrado: ${sqlPath}`);
+      await this.seed.runIfNeeded();
       return;
     }
 
@@ -47,12 +52,11 @@ export class SchemaBootstrapService implements OnModuleInit {
 
       if (exists.rows[0]?.regclass) {
         this.logger.log('Schema ITSM já existe (tabela clientes). Nada a criar.');
-        return;
+      } else {
+        const sql = await readFile(sqlPath, 'utf8');
+        await client.query(sql);
+        this.logger.log('Schema ITSM v7 criado no PostgreSQL.');
       }
-
-      const sql = await readFile(sqlPath, 'utf8');
-      await client.query(sql);
-      this.logger.log('Schema ITSM v7 criado no PostgreSQL.');
     } catch (error) {
       this.logger.warn(
         `Não foi possível aplicar o schema SQL (Postgres/TLS). A API sobe mesmo assim. ${
@@ -62,5 +66,7 @@ export class SchemaBootstrapService implements OnModuleInit {
     } finally {
       await client.end().catch(() => undefined);
     }
+
+    await this.seed.runIfNeeded();
   }
 }

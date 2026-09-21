@@ -1,36 +1,40 @@
-import { Body, Controller, Get, Param, ParseIntPipe, Post, Query } from '@nestjs/common';
+import {
+  Controller,
+  ForbiddenException,
+  Get,
+  NotFoundException,
+  Param,
+  ParseIntPipe,
+  Query,
+} from '@nestjs/common';
+import { CurrentUser } from '../auth/current-user.decorator.js';
+import type { AuthUser } from '../auth/auth.types.js';
 import { PrismaService } from '../prisma/prisma.service.js';
-import { AuthService } from './auth.service.js';
-import { LoginDto } from './login.dto.js';
 
 @Controller()
 export class ApiController {
-  constructor(
-    private readonly prisma: PrismaService,
-    private readonly auth: AuthService,
-  ) {}
-
-  @Post('auth/login')
-  login(@Body() dto: LoginDto) {
-    return this.auth.login(dto);
-  }
+  constructor(private readonly prisma: PrismaService) {}
 
   @Get('dashboards/resumo')
-  resumo() {
+  resumo(@CurrentUser() user: AuthUser) {
     return this.prisma.chamados.groupBy({
       by: ['status'],
+      where: this.tenant(user),
       _count: true,
     });
   }
 
   @Get('clientes')
-  clientes() {
-    return this.prisma.clientes.findMany();
+  clientes(@CurrentUser() user: AuthUser) {
+    return this.prisma.clientes.findMany({
+      where: { id: user.id_cliente },
+    });
   }
 
   @Get('usuarios')
-  usuarios() {
+  usuarios(@CurrentUser() user: AuthUser) {
     return this.prisma.usuarios.findMany({
+      where: this.tenant(user),
       select: {
         id: true,
         id_cliente: true,
@@ -48,104 +52,125 @@ export class ApiController {
   }
 
   @Get('departamentos')
-  departamentos() {
-    return this.prisma.departamentos.findMany();
+  departamentos(@CurrentUser() user: AuthUser) {
+    return this.prisma.departamentos.findMany({ where: this.tenant(user) });
   }
 
   @Get('grupos-suporte')
-  grupos() {
-    return this.prisma.grupos_suporte.findMany();
+  grupos(@CurrentUser() user: AuthUser) {
+    return this.prisma.grupos_suporte.findMany({ where: this.tenant(user) });
   }
 
   @Get('categorias')
-  categorias() {
-    return this.prisma.categorias_chamados.findMany();
+  categorias(@CurrentUser() user: AuthUser) {
+    return this.prisma.categorias_chamados.findMany({
+      where: this.tenant(user),
+    });
   }
 
   @Get('politicas-sla')
-  sla() {
-    return this.prisma.politicas_sla.findMany();
+  sla(@CurrentUser() user: AuthUser) {
+    return this.prisma.politicas_sla.findMany({ where: this.tenant(user) });
   }
 
   @Get('chamados')
-  chamados(@Query('status') status?: string) {
+  chamados(@CurrentUser() user: AuthUser, @Query('status') status?: string) {
     return this.prisma.chamados.findMany({
-      where: status ? { status } : undefined,
+      where: {
+        ...this.tenant(user),
+        ...(status ? { status } : {}),
+      },
       orderBy: { data_abertura: 'desc' },
     });
   }
 
   @Get('chamados/:idCliente/:id')
-  chamado(
+  async chamado(
+    @CurrentUser() user: AuthUser,
     @Param('idCliente', ParseIntPipe) idCliente: number,
     @Param('id', ParseIntPipe) id: number,
   ) {
-    return this.prisma.chamados.findUnique({
-      where: { id_cliente_id: { id_cliente: idCliente, id } },
+    if (idCliente !== user.id_cliente) {
+      throw new ForbiddenException('Recurso de outro tenant');
+    }
+    const chamado = await this.prisma.chamados.findUnique({
+      where: { id_cliente_id: { id_cliente: user.id_cliente, id } },
       include: { comentarios_chamados: true, anexos_chamados: true },
     });
+    if (!chamado) {
+      throw new NotFoundException('Chamado não encontrado');
+    }
+    return chamado;
   }
 
   @Get('triagem')
-  triagem() {
+  triagem(@CurrentUser() user: AuthUser) {
     return this.prisma.chamados.findMany({
-      where: { status: 'NOVO' },
+      where: { ...this.tenant(user), status: 'NOVO' },
       orderBy: { data_abertura: 'asc' },
     });
   }
 
   @Get('ativos')
-  ativos() {
-    return this.prisma.ativos_cmdb.findMany();
+  ativos(@CurrentUser() user: AuthUser) {
+    return this.prisma.ativos_cmdb.findMany({ where: this.tenant(user) });
   }
 
   @Get('artigos-kb')
-  artigos() {
+  artigos(@CurrentUser() user: AuthUser) {
     return this.prisma.artigos_kb.findMany({
-      where: { status: 'PUBLICADO' },
+      where: { ...this.tenant(user), status: 'PUBLICADO' },
     });
   }
 
   @Get('aprovacoes')
-  aprovacoes() {
+  aprovacoes(@CurrentUser() user: AuthUser) {
     return this.prisma.requisicoes_aprovacao.findMany({
-      where: { status: 'PENDENTE' },
+      where: { ...this.tenant(user), status: 'PENDENTE' },
     });
   }
 
   @Get('notificacoes')
-  notificacoes() {
+  notificacoes(@CurrentUser() user: AuthUser) {
     return this.prisma.notificacoes.findMany({
+      where: { id_cliente: user.id_cliente, id_usuario: user.id },
       orderBy: { data_criacao: 'desc' },
       take: 50,
     });
   }
 
   @Get('auditoria')
-  auditoria() {
+  auditoria(@CurrentUser() user: AuthUser) {
     return this.prisma.logs_auditoria.findMany({
+      where: this.tenant(user),
       orderBy: { data_criacao: 'desc' },
       take: 100,
     });
   }
 
   @Get('branding')
-  branding() {
-    return this.prisma.configuracoes_branding.findMany();
+  branding(@CurrentUser() user: AuthUser) {
+    return this.prisma.configuracoes_branding.findMany({
+      where: this.tenant(user),
+    });
   }
 
   @Get('integracoes')
-  integracoes() {
-    return this.prisma.integracoes.findMany();
+  integracoes(@CurrentUser() user: AuthUser) {
+    return this.prisma.integracoes.findMany({ where: this.tenant(user) });
   }
 
   @Get('problemas')
-  problemas() {
-    return this.prisma.problemas.findMany();
+  problemas(@CurrentUser() user: AuthUser) {
+    return this.prisma.problemas.findMany({ where: this.tenant(user) });
   }
 
   @Get('mudancas')
-  mudancas() {
-    return this.prisma.mudancas.findMany();
+  mudancas(@CurrentUser() user: AuthUser) {
+    return this.prisma.mudancas.findMany({ where: this.tenant(user) });
+  }
+
+  private tenant(user: AuthUser) {
+    return { id_cliente: user.id_cliente };
   }
 }
