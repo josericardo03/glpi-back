@@ -95,12 +95,33 @@ export class ApiController {
     }
     const chamado = await this.prisma.chamados.findUnique({
       where: { id_cliente_id: { id_cliente: user.id_cliente, id } },
-      include: { comentarios_chamados: true, anexos_chamados: true },
+      include: {
+        comentarios_chamados: true,
+        anexos_chamados: {
+          select: {
+            id: true,
+            id_cliente: true,
+            id_chamado: true,
+            id_comentario: true,
+            nome_arquivo: true,
+            caminho_storage: true,
+            tipo_mime: true,
+            tamanho_bytes: true,
+            data_upload: true,
+          },
+        },
+      },
     });
     if (!chamado) {
       throw new NotFoundException('Chamado não encontrado');
     }
-    return chamado;
+    return {
+      ...chamado,
+      anexos_chamados: chamado.anexos_chamados.map((anexo) => ({
+        ...anexo,
+        tamanho_bytes: Number(anexo.tamanho_bytes),
+      })),
+    };
   }
 
   @Get('triagem')

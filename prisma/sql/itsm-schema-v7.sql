@@ -228,6 +228,7 @@ CREATE TABLE anexos_chamados (
     caminho_storage VARCHAR(512) NOT NULL,
     tipo_mime VARCHAR(100) NOT NULL,
     tamanho_bytes BIGINT NOT NULL,
+    conteudo BYTEA,
     data_upload TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     CONSTRAINT pk_anexos_chamados PRIMARY KEY (id_cliente, id),
     CONSTRAINT fk_anexo_cliente FOREIGN KEY (id_cliente) REFERENCES clientes(id) ON DELETE CASCADE,

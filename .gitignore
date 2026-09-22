@@ -14,3 +14,6 @@ npm-debug.log*
 # os
 .DS_Store
 Thumbs.db
+
+# anexos locais (fallback sem service role do Storage)
+/storage
