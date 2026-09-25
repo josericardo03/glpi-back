@@ -9,6 +9,7 @@ import { DatabaseModule } from './database/database.module.js';
 import { Fase2Module } from './fase2/fase2.module.js';
 import { Fase3Module } from './fase3/fase3.module.js';
 import { Fase4Module } from './fase4/fase4.module.js';
+import { Fase5Module } from './fase5/fase5.module.js';
 import { PrismaModule } from './prisma/prisma.module.js';
 import { TenantsModule } from './tenants/tenants.module.js';
 
@@ -28,6 +29,7 @@ import { TenantsModule } from './tenants/tenants.module.js';
     Fase2Module,
     Fase4Module,
     Fase3Module,
+    Fase5Module,
   ],
   controllers: [AppController],
   providers: [AppService],
