@@ -4,6 +4,7 @@ import {
   ForbiddenException,
   Injectable,
   NotFoundException,
+  UnprocessableEntityException,
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import type { AuthUser } from '../auth/auth.types.js';
@@ -27,7 +28,9 @@ export class CatalogoWriteService {
       throw new ForbiddenException('A avaliação é do solicitante do chamado');
     }
     if (!['RESOLVIDO', 'CONCLUIDO'].includes(chamado.status)) {
-      throw new BadRequestException('CSAT só após a resolução do chamado');
+      throw new UnprocessableEntityException(
+        'CSAT só é permitido em chamado RESOLVIDO ou CONCLUIDO',
+      );
     }
     try {
       const row = await this.prisma.$transaction(async (tx) => {
@@ -42,11 +45,12 @@ export class CatalogoWriteService {
         });
         await this.audit.record(tx, {
           id_cliente: user.id_cliente,
-          acao: 'RECORD_CSAT',
+          acao: 'SUBMIT_CSAT',
           tabela_afetada: 'pesquisas_csat',
           registro_id: created.id,
           valor_anterior: null,
           valor_novo: {
+            id_chamado: chamado.id,
             nota_satisfacao: dto.nota_satisfacao,
             comentarios: dto.comentarios ?? null,
           },
