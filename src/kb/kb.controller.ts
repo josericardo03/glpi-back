@@ -1,0 +1,74 @@
+import { Body, Controller, HttpCode, HttpStatus, Param, ParseIntPipe, Post } from '@nestjs/common';
+import { CurrentUser } from '../auth/current-user.decorator.js';
+import { Roles } from '../auth/roles.js';
+import type { AuthUser } from '../auth/auth.types.js';
+import { CreateArtigoDto, CreateCategoriaKbDto, FeedbackArtigoDto } from './dto/artigo.dto.js';
+import { CreateKbArtigoDto, CreateKbCategoriaDto, FeedbackKbDto } from './dto/kb.dto.js';
+import { KbService } from './kb.service.js';
+
+@Controller()
+export class ArtigosController {
+  constructor(private readonly kb: KbService) {}
+
+  @Post('categorias-kb')
+  @Roles('TECNICO')
+  @HttpCode(HttpStatus.CREATED)
+  categoria(@CurrentUser() user: AuthUser, @Body() dto: CreateCategoriaKbDto) {
+    return this.kb.criarCategoria(user, dto, 'CREATE_CATEGORIA_KB');
+  }
+
+  @Post('artigos-kb')
+  @Roles('TECNICO')
+  @HttpCode(HttpStatus.CREATED)
+  artigo(@CurrentUser() user: AuthUser, @Body() dto: CreateArtigoDto) {
+    return this.kb.criarArtigo(user, dto, 'CREATE_ARTIGO');
+  }
+
+  @Post('artigos-kb/:id/feedback')
+  @Roles('SOLICITANTE')
+  @HttpCode(HttpStatus.CREATED)
+  feedback(
+    @CurrentUser() user: AuthUser,
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: FeedbackArtigoDto,
+  ) {
+    return this.kb.feedback(user, id, dto, 'FEEDBACK_ARTIGO');
+  }
+}
+
+@Controller('kb')
+export class KbController {
+  constructor(private readonly kb: KbService) {}
+
+  @Post('categorias')
+  @Roles('GESTOR')
+  @HttpCode(HttpStatus.CREATED)
+  categoria(@CurrentUser() user: AuthUser, @Body() dto: CreateKbCategoriaDto) {
+    return this.kb.criarCategoria(user, dto, 'CREATE_KB_CATEGORY');
+  }
+
+  @Post('artigos')
+  @Roles('TECNICO')
+  @HttpCode(HttpStatus.CREATED)
+  artigo(@CurrentUser() user: AuthUser, @Body() dto: CreateKbArtigoDto) {
+    return this.kb.criarArtigo(user, dto, 'CREATE_KB_ARTICLE');
+  }
+
+  @Post('artigos/:id/visualizar')
+  @Roles('SOLICITANTE')
+  @HttpCode(HttpStatus.OK)
+  visualizar(@CurrentUser() user: AuthUser, @Param('id', ParseIntPipe) id: number) {
+    return this.kb.visualizar(user, id);
+  }
+
+  @Post('artigos/:id/feedback')
+  @Roles('SOLICITANTE')
+  @HttpCode(HttpStatus.CREATED)
+  feedback(
+    @CurrentUser() user: AuthUser,
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: FeedbackKbDto,
+  ) {
+    return this.kb.feedback(user, id, dto, 'ADD_KB_FEEDBACK');
+  }
+}
