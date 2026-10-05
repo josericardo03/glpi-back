@@ -10,18 +10,13 @@ import {
 import { CurrentUser } from '../auth/current-user.decorator.js';
 import type { AuthUser } from '../auth/auth.types.js';
 import { PrismaService } from '../prisma/prisma.service.js';
-import { SlaService } from '../sla/sla.service.js';
 
 @Controller()
 export class ApiController {
-  constructor(
-    private readonly prisma: PrismaService,
-    private readonly prazos: SlaService,
-  ) {}
+  constructor(private readonly prisma: PrismaService) {}
 
   @Get('dashboards/resumo')
-  async resumo(@CurrentUser() user: AuthUser) {
-    await this.prazos.atualizarVencidos(user.id_cliente);
+  resumo(@CurrentUser() user: AuthUser) {
     return this.prisma.chamados.groupBy({
       by: ['status'],
       where: this.chamadosDoUsuario(user),
@@ -37,9 +32,14 @@ export class ApiController {
   }
 
   @Get('usuarios')
-  usuarios(@CurrentUser() user: AuthUser) {
+  usuarios(
+    @CurrentUser() user: AuthUser,
+    @Query('limite') limite?: string,
+    @Query('pagina') pagina?: string,
+  ) {
     return this.prisma.usuarios.findMany({
       where: this.tenant(user),
+      ...this.fatia(limite, pagina, 100, 200),
       select: {
         id: true,
         id_cliente: true,
@@ -79,14 +79,19 @@ export class ApiController {
   }
 
   @Get('chamados')
-  async chamados(@CurrentUser() user: AuthUser, @Query('status') status?: string) {
-    await this.prazos.atualizarVencidos(user.id_cliente);
+  chamados(
+    @CurrentUser() user: AuthUser,
+    @Query('status') status?: string,
+    @Query('limite') limite?: string,
+    @Query('pagina') pagina?: string,
+  ) {
     return this.prisma.chamados.findMany({
       where: {
         ...this.chamadosDoUsuario(user),
         ...(status ? { status } : {}),
       },
       orderBy: { data_abertura: 'desc' },
+      ...this.fatia(limite, pagina, 100, 200),
     });
   }
 
@@ -99,7 +104,6 @@ export class ApiController {
     if (idCliente !== user.id_cliente) {
       throw new ForbiddenException('Recurso de outro tenant');
     }
-    await this.prazos.atualizarVencidos(user.id_cliente);
     const chamado = await this.prisma.chamados.findUnique({
       where: { id_cliente_id: { id_cliente: user.id_cliente, id } },
       include: {
@@ -151,34 +155,55 @@ export class ApiController {
   }
 
   @Get('triagem')
-  async triagem(@CurrentUser() user: AuthUser) {
-    await this.prazos.atualizarVencidos(user.id_cliente);
+  triagem(
+    @CurrentUser() user: AuthUser,
+    @Query('limite') limite?: string,
+    @Query('pagina') pagina?: string,
+  ) {
     return this.prisma.chamados.findMany({
       where: { ...this.chamadosDoUsuario(user), status: 'NOVO' },
       orderBy: { data_abertura: 'asc' },
+      ...this.fatia(limite, pagina, 100, 200),
     });
   }
 
   @Get('ativos')
-  ativos(@CurrentUser() user: AuthUser) {
-    return this.prisma.ativos_cmdb.findMany({ where: this.tenant(user) });
+  ativos(
+    @CurrentUser() user: AuthUser,
+    @Query('limite') limite?: string,
+    @Query('pagina') pagina?: string,
+  ) {
+    return this.prisma.ativos_cmdb.findMany({
+      where: this.tenant(user),
+      ...this.fatia(limite, pagina, 100, 200),
+    });
   }
 
   @Get('artigos-kb')
-  artigos(@CurrentUser() user: AuthUser) {
+  artigos(
+    @CurrentUser() user: AuthUser,
+    @Query('limite') limite?: string,
+    @Query('pagina') pagina?: string,
+  ) {
     return this.prisma.artigos_kb.findMany({
       where: { ...this.tenant(user), status: 'PUBLICADO' },
+      ...this.fatia(limite, pagina, 50, 100),
     });
   }
 
   @Get('aprovacoes')
-  aprovacoes(@CurrentUser() user: AuthUser) {
+  aprovacoes(
+    @CurrentUser() user: AuthUser,
+    @Query('limite') limite?: string,
+    @Query('pagina') pagina?: string,
+  ) {
     return this.prisma.requisicoes_aprovacao.findMany({
       where: {
         ...this.tenant(user),
         status: 'PENDENTE',
         ...(user.perfil === 'SOLICITANTE' ? { id_solicitante: user.id } : {}),
       },
+      ...this.fatia(limite, pagina, 50, 100),
     });
   }
 
@@ -213,13 +238,27 @@ export class ApiController {
   }
 
   @Get('problemas')
-  problemas(@CurrentUser() user: AuthUser) {
-    return this.prisma.problemas.findMany({ where: this.tenant(user) });
+  problemas(
+    @CurrentUser() user: AuthUser,
+    @Query('limite') limite?: string,
+    @Query('pagina') pagina?: string,
+  ) {
+    return this.prisma.problemas.findMany({
+      where: this.tenant(user),
+      ...this.fatia(limite, pagina, 50, 100),
+    });
   }
 
   @Get('mudancas')
-  mudancas(@CurrentUser() user: AuthUser) {
-    return this.prisma.mudancas.findMany({ where: this.tenant(user) });
+  mudancas(
+    @CurrentUser() user: AuthUser,
+    @Query('limite') limite?: string,
+    @Query('pagina') pagina?: string,
+  ) {
+    return this.prisma.mudancas.findMany({
+      where: this.tenant(user),
+      ...this.fatia(limite, pagina, 50, 100),
+    });
   }
 
   private tenant(user: AuthUser) {
@@ -231,5 +270,11 @@ export class ApiController {
       id_cliente: user.id_cliente,
       ...(user.perfil === 'SOLICITANTE' ? { id_solicitante: user.id } : {}),
     };
+  }
+
+  private fatia(limite: string | undefined, pagina: string | undefined, padrao: number, teto: number) {
+    const tamanho = Math.min(teto, Math.max(1, Number(limite) || padrao));
+    const paginaNum = Math.max(1, Number(pagina) || 1);
+    return { take: tamanho, skip: (paginaNum - 1) * tamanho };
   }
 }

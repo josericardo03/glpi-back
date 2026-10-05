@@ -1,4 +1,4 @@
-import { Injectable, UnprocessableEntityException } from '@nestjs/common';
+import { Injectable, Logger, OnModuleDestroy, OnModuleInit, UnprocessableEntityException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service.js';
 import {
   addBusinessMinutes,
@@ -20,8 +20,23 @@ export function escolherPolitica<T extends { id: number; tipo_chamado_alvo: stri
 }
 
 @Injectable()
-export class SlaService {
+export class SlaService implements OnModuleInit, OnModuleDestroy {
+  private readonly logger = new Logger(SlaService.name);
+  private timer?: NodeJS.Timeout;
+  private varrendo = false;
+
   constructor(private readonly prisma: PrismaService) {}
+
+  onModuleInit() {
+    if (process.env.VITEST === 'true') return;
+    void this.varrerVencidos();
+    this.timer = setInterval(() => void this.varrerVencidos(), 60_000);
+    this.timer.unref();
+  }
+
+  onModuleDestroy() {
+    if (this.timer) clearInterval(this.timer);
+  }
 
   async prever(
     idCliente: number,
@@ -66,23 +81,30 @@ export class SlaService {
     };
   }
 
-  async atualizarVencidos(idCliente: number) {
-    await this.prisma.$executeRaw`
-      UPDATE chamados
-      SET sla_vencido = TRUE
-      WHERE id_cliente = ${idCliente}
-        AND sla_vencido = FALSE
-        AND (
-          (status NOT IN ('RESOLVIDO', 'CONCLUIDO') AND data_previsao_resolucao < NOW())
-          OR (status = 'NOVO' AND data_previsao_resposta IS NOT NULL AND data_previsao_resposta < NOW())
-          OR (
-            status IN ('RESOLVIDO', 'CONCLUIDO')
-            AND data_resolucao IS NOT NULL
-            AND data_previsao_resolucao IS NOT NULL
-            AND data_resolucao > data_previsao_resolucao
+  private async varrerVencidos() {
+    if (this.varrendo) return;
+    this.varrendo = true;
+    try {
+      await this.prisma.$executeRaw`
+        UPDATE chamados
+        SET sla_vencido = TRUE
+        WHERE sla_vencido = FALSE
+          AND (
+            (status NOT IN ('RESOLVIDO', 'CONCLUIDO', 'PENDENTE') AND data_previsao_resolucao < NOW())
+            OR (status = 'NOVO' AND data_previsao_resposta IS NOT NULL AND data_previsao_resposta < NOW())
+            OR (
+              status IN ('RESOLVIDO', 'CONCLUIDO')
+              AND data_resolucao IS NOT NULL
+              AND data_previsao_resolucao IS NOT NULL
+              AND data_resolucao > data_previsao_resolucao
+            )
           )
-        )
-    `;
+      `;
+    } catch (error) {
+      this.logger.error(error instanceof Error ? error.message : String(error));
+    } finally {
+      this.varrendo = false;
+    }
   }
 
   async adiarPrevisao(

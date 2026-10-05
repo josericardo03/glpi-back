@@ -1,5 +1,7 @@
 import {
   ForbiddenException,
+  HttpException,
+  HttpStatus,
   Injectable,
   Logger,
   UnauthorizedException,
@@ -21,6 +23,7 @@ const JWT_AUDIENCE = 'itsm-portal';
 export class AuthService {
   private readonly logger = new Logger(AuthService.name);
   private readonly expiresIn: string;
+  private readonly tentativasLogin = new Map<string, { n: number; ate: number }>();
 
   constructor(
     private readonly prisma: PrismaService,
@@ -38,6 +41,7 @@ export class AuthService {
 
   async login(dto: LoginDto) {
     const email = dto.email.trim().toLowerCase();
+    this.limitarLogin(email);
     const candidatos = await this.prisma.usuarios.findMany({
       where: {
         email,
@@ -129,6 +133,24 @@ export class AuthService {
       throw new ForbiddenException('Tenant indisponível');
     }
     return this.toMe(user, cliente);
+  }
+
+  private limitarLogin(email: string) {
+    const agora = Date.now();
+    if (this.tentativasLogin.size > 5000) {
+      for (const [chave, valor] of this.tentativasLogin) {
+        if (valor.ate < agora) this.tentativasLogin.delete(chave);
+      }
+    }
+    const atual = this.tentativasLogin.get(email);
+    if (!atual || atual.ate < agora) {
+      this.tentativasLogin.set(email, { n: 1, ate: agora + 60_000 });
+      return;
+    }
+    atual.n += 1;
+    if (atual.n > 15) {
+      throw new HttpException('Muitas tentativas de login. Aguarde um minuto.', HttpStatus.TOO_MANY_REQUESTS);
+    }
   }
 
   private async verificarSenha(plain: string, stored: string) {
