@@ -176,6 +176,7 @@ CREATE TABLE chamados (
     prioridade VARCHAR(20) NOT NULL,
     status VARCHAR(30) NOT NULL DEFAULT 'NOVO',
     data_abertura TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    data_previsao_resposta TIMESTAMPTZ,
     data_previsao_resolucao TIMESTAMPTZ,
     data_resolucao TIMESTAMPTZ,
     data_fechamento TIMESTAMPTZ,
@@ -640,5 +641,6 @@ CREATE INDEX idx_artigos_kb_categoria ON artigos_kb(id_cliente, id_categoria);
 CREATE INDEX idx_ativos_usuario ON ativos_cmdb(id_cliente, id_usuario_atribuido);
 CREATE INDEX idx_ativos_patrimonio ON ativos_cmdb(id_cliente, codigo_patrimonio);
 CREATE INDEX idx_logs_auditoria_composto ON logs_auditoria(id_cliente, data_criacao);
+CREATE UNIQUE INDEX uq_sla_ativa_por_alvo ON politicas_sla(id_cliente, prioridade_alvo, tipo_chamado_alvo) WHERE status = 'ATIVO';
 CREATE UNIQUE INDEX uq_feriado_pontual_cliente ON feriados(id_cliente, dia, mes, ano) WHERE ano IS NOT NULL;
 CREATE UNIQUE INDEX uq_feriado_recorrente_cliente ON feriados(id_cliente, dia, mes) WHERE ano IS NULL;

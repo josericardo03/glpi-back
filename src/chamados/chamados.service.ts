@@ -42,6 +42,9 @@ export class ChamadosService {
       where: { id: dto.id_categoria, id_cliente: user.id_cliente, status: 'ATIVO' },
     });
     if (!categoria) throw new NotFoundException('Categoria não encontrada');
+    if (categoria.tipo_aplicacao !== 'AMBOS' && categoria.tipo_aplicacao !== dto.tipo) {
+      throw new BadRequestException('Categoria não se aplica a este tipo de chamado');
+    }
 
     if (dto.id_ativo_afetado) {
       const ativo = await this.prisma.ativos_cmdb.findFirst({
@@ -65,6 +68,7 @@ export class ChamadosService {
           origem: dto.origem ?? 'PORTAL',
           prioridade: dto.prioridade,
           status: 'NOVO',
+          data_previsao_resposta: previsao.data_previsao_resposta,
           data_previsao_resolucao: previsao.data_previsao_resolucao,
         },
       });
@@ -99,6 +103,7 @@ export class ChamadosService {
       titulo: criado.titulo,
       status: criado.status,
       data_abertura: criado.data_abertura,
+      data_previsao_resposta: criado.data_previsao_resposta,
       data_previsao_resolucao: criado.data_previsao_resolucao,
       sla_vencido: criado.sla_vencido,
     };
@@ -135,6 +140,23 @@ export class ChamadosService {
       }
     }
 
+    let slaVencido = chamado.sla_vencido;
+    if (
+      chamado.status === 'NOVO' &&
+      dto.status_novo === 'EM_ATENDIMENTO' &&
+      chamado.data_previsao_resposta &&
+      agora > chamado.data_previsao_resposta
+    ) {
+      slaVencido = true;
+    }
+    if (
+      dto.status_novo === 'RESOLVIDO' &&
+      chamado.data_previsao_resolucao &&
+      dataResolucao > chamado.data_previsao_resolucao
+    ) {
+      slaVencido = true;
+    }
+
     const tempo = await this.tempoNoStatus(chamado);
     const atualizado = await this.prisma.$transaction(async (tx) => {
       const saved = await tx.chamados.update({
@@ -145,6 +167,7 @@ export class ChamadosService {
             ? { resolucao: dto.resolucao, data_resolucao: dataResolucao }
             : {}),
           ...(dto.status_novo === 'CONCLUIDO' ? { data_fechamento: dataFechamento } : {}),
+          sla_vencido: slaVencido,
         },
       });
       await tx.historico_status_chamados.create({
@@ -219,10 +242,17 @@ export class ChamadosService {
     if (aberta) throw new ConflictException('Já existe uma pausa de SLA em aberto');
 
     const tempo = await this.tempoNoStatus(chamado);
+    const agora = new Date();
+    const slaVencido =
+      chamado.sla_vencido ||
+      (!!chamado.data_previsao_resolucao && agora > chamado.data_previsao_resolucao) ||
+      (chamado.status === 'NOVO' &&
+        !!chamado.data_previsao_resposta &&
+        agora > chamado.data_previsao_resposta);
     return this.prisma.$transaction(async (tx) => {
       await tx.chamados.update({
         where: { id_cliente_id: { id_cliente: user.id_cliente, id } },
-        data: { status: 'PENDENTE' },
+        data: { status: 'PENDENTE', sla_vencido: slaVencido },
       });
       const historico = await tx.historico_status_chamados.create({
         data: {
@@ -270,6 +300,9 @@ export class ChamadosService {
     }
     const agora = new Date();
     const segundos = Math.max(0, Math.floor((agora.getTime() - pausa.data_pausa.getTime()) / 1000));
+    const origem = await this.prisma.historico_status_chamados.findFirst({
+      where: { id: pausa.id_historico_origem, id_cliente: user.id_cliente },
+    });
     const novaPrevisao = await this.sla.adiarPrevisao(
       user.id_cliente,
       chamado.id_politica_sla,
@@ -277,6 +310,19 @@ export class ChamadosService {
       pausa.data_pausa,
       agora,
     );
+    let novaResposta = chamado.data_previsao_resposta;
+    let slaVencido = chamado.sla_vencido;
+    if (origem?.status_anterior === 'NOVO') {
+      novaResposta = await this.sla.adiarPrevisao(
+        user.id_cliente,
+        chamado.id_politica_sla,
+        chamado.data_previsao_resposta,
+        pausa.data_pausa,
+        agora,
+      );
+      if (novaResposta && agora > novaResposta) slaVencido = true;
+    }
+    if (novaPrevisao && agora > novaPrevisao) slaVencido = true;
     const tempo = await this.tempoNoStatus(chamado);
 
     return this.prisma.$transaction(async (tx) => {
@@ -290,6 +336,8 @@ export class ChamadosService {
           status: 'EM_ATENDIMENTO',
           tempo_acumulado_pausa_s: { increment: segundos },
           data_previsao_resolucao: novaPrevisao,
+          data_previsao_resposta: novaResposta,
+          sla_vencido: slaVencido,
         },
       });
       await tx.historico_status_chamados.create({

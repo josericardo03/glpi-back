@@ -113,6 +113,7 @@ model chamados {
   prioridade                String                      @db.VarChar(20)
   status                    String                      @default("NOVO") @db.VarChar(30)
   data_abertura             DateTime                    @default(now()) @db.Timestamptz(6)
+  data_previsao_resposta    DateTime?                   @db.Timestamptz(6)
   data_previsao_resolucao   DateTime?                   @db.Timestamptz(6)
   data_resolucao            DateTime?                   @db.Timestamptz(6)
   data_fechamento           DateTime?                   @db.Timestamptz(6)

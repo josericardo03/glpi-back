@@ -3,7 +3,13 @@ import { CurrentUser } from '../auth/current-user.decorator.js';
 import { Roles } from '../auth/roles.js';
 import type { AuthUser } from '../auth/auth.types.js';
 import { CatalogoService } from './catalogo.service.js';
-import { CreateMudancaDto, CreateProblemaDto, CsatDto, DecisaoDto } from './dto/catalogo.dto.js';
+import {
+  CreateAprovacaoDto,
+  CreateMudancaDto,
+  CreateProblemaDto,
+  CsatDto,
+  DecisaoDto,
+} from './dto/catalogo.dto.js';
 
 @Controller()
 export class CatalogoController {
@@ -28,6 +34,13 @@ export class CatalogoController {
   @HttpCode(HttpStatus.CREATED)
   mudanca(@CurrentUser() user: AuthUser, @Body() dto: CreateMudancaDto) {
     return this.catalogo.mudanca(user, dto);
+  }
+
+  @Post('aprovacoes')
+  @Roles('SOLICITANTE')
+  @HttpCode(HttpStatus.CREATED)
+  aprovacao(@CurrentUser() user: AuthUser, @Body() dto: CreateAprovacaoDto) {
+    return this.catalogo.criarAprovacao(user, dto);
   }
 
   @Post('aprovacoes/:id/decisao')

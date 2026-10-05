@@ -97,6 +97,26 @@ export class CreateMudancaDto {
   id_chamado?: number;
 }
 
+export class CreateAprovacaoDto {
+  @IsString()
+  @MinLength(3)
+  descricao: string;
+
+  @Type(() => Number)
+  @IsInt()
+  id_aprovador: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  id_chamado?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  id_mudanca?: number;
+}
+
 export class DecisaoDto {
   @IsIn(['APROVADO', 'REJEITADO'])
   status: 'APROVADO' | 'REJEITADO';

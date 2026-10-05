@@ -349,7 +349,21 @@ export class AdminService {
       where: { id: dto.id_horario_comercial, id_cliente: user.id_cliente },
     });
     if (!horario) throw new NotFoundException('Horário comercial não encontrado');
-    return this.prisma.$transaction(async (tx) => {
+    if ((dto.status ?? 'ATIVO') === 'ATIVO') {
+      const existente = await this.prisma.politicas_sla.findFirst({
+        where: {
+          id_cliente: user.id_cliente,
+          prioridade_alvo: dto.prioridade_alvo,
+          tipo_chamado_alvo: dto.tipo_chamado_alvo,
+          status: 'ATIVO',
+        },
+      });
+      if (existente) {
+        throw new ConflictException('Já existe política de SLA ativa para esta prioridade e tipo');
+      }
+    }
+    try {
+      return await this.prisma.$transaction(async (tx) => {
       const row = await tx.politicas_sla.create({
         data: {
           id_cliente: user.id_cliente,
@@ -379,6 +393,9 @@ export class AdminService {
       });
       return row;
     });
+    } catch (error) {
+      throw this.traduzir(error, 'Já existe política de SLA ativa para esta prioridade e tipo');
+    }
   }
 
   async branding(user: AuthUser, dto: BrandingAdminDto) {

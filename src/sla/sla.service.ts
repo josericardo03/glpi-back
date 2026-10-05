@@ -8,6 +8,17 @@ import {
   type Slot,
 } from './business-time.js';
 
+export function escolherPolitica<T extends { id: number; tipo_chamado_alvo: string }>(
+  politicas: T[],
+  tipo: string,
+): T | undefined {
+  const ordenadas = [...politicas].sort((a, b) => a.id - b.id);
+  return (
+    ordenadas.find((politica) => politica.tipo_chamado_alvo === tipo) ??
+    ordenadas.find((politica) => politica.tipo_chamado_alvo === 'AMBOS')
+  );
+}
+
 @Injectable()
 export class SlaService {
   constructor(private readonly prisma: PrismaService) {}
@@ -18,17 +29,18 @@ export class SlaService {
     tipo: string,
     aPartirDe = new Date(),
   ) {
-    const politica = await this.prisma.politicas_sla.findFirst({
+    const politicas = await this.prisma.politicas_sla.findMany({
       where: {
         id_cliente: idCliente,
         prioridade_alvo: prioridade,
-        tipo_chamado_alvo: tipo,
+        tipo_chamado_alvo: { in: [tipo, 'AMBOS'] },
         status: 'ATIVO',
       },
       include: {
         horarios_comerciais: { include: { intervalos_horarios: true } },
       },
     });
+    const politica = escolherPolitica(politicas, tipo);
     if (!politica) {
       throw new UnprocessableEntityException(
         'Não há política de SLA ativa para esta prioridade e tipo',
@@ -37,6 +49,13 @@ export class SlaService {
     const grade = await this.grade(idCliente, politica);
     return {
       id_politica_sla: politica.id,
+      data_previsao_resposta: addBusinessMinutes(
+        aPartirDe,
+        politica.tempo_resposta_min,
+        grade.slots,
+        grade.feriados,
+        grade.offset,
+      ),
       data_previsao_resolucao: addBusinessMinutes(
         aPartirDe,
         politica.tempo_resolucao_min,
@@ -45,6 +64,25 @@ export class SlaService {
         grade.offset,
       ),
     };
+  }
+
+  async atualizarVencidos(idCliente: number) {
+    await this.prisma.$executeRaw`
+      UPDATE chamados
+      SET sla_vencido = TRUE
+      WHERE id_cliente = ${idCliente}
+        AND sla_vencido = FALSE
+        AND (
+          (status NOT IN ('RESOLVIDO', 'CONCLUIDO') AND data_previsao_resolucao < NOW())
+          OR (status = 'NOVO' AND data_previsao_resposta IS NOT NULL AND data_previsao_resposta < NOW())
+          OR (
+            status IN ('RESOLVIDO', 'CONCLUIDO')
+            AND data_resolucao IS NOT NULL
+            AND data_previsao_resolucao IS NOT NULL
+            AND data_resolucao > data_previsao_resolucao
+          )
+        )
+    `;
   }
 
   async adiarPrevisao(

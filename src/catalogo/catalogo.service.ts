@@ -10,7 +10,13 @@ import { Prisma } from '@prisma/client';
 import type { AuthUser } from '../auth/auth.types.js';
 import { AuditService } from '../audit/audit.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
-import { CreateMudancaDto, CreateProblemaDto, CsatDto, DecisaoDto } from './dto/catalogo.dto.js';
+import {
+  CreateAprovacaoDto,
+  CreateMudancaDto,
+  CreateProblemaDto,
+  CsatDto,
+  DecisaoDto,
+} from './dto/catalogo.dto.js';
 
 @Injectable()
 export class CatalogoService {
@@ -152,6 +158,60 @@ export class CatalogoService {
         valor_novo: { titulo: created.titulo, tipo_mudanca: created.tipo_mudanca },
       });
       return created;
+    });
+  }
+
+  async criarAprovacao(user: AuthUser, dto: CreateAprovacaoDto) {
+    const temChamado = dto.id_chamado != null;
+    const temMudanca = dto.id_mudanca != null;
+    if (temChamado === temMudanca) {
+      throw new BadRequestException('Aprovação precisa apontar chamado ou mudança, nunca os dois');
+    }
+    if (temChamado) {
+      const chamado = await this.prisma.chamados.findFirst({
+        where: { id: dto.id_chamado, id_cliente: user.id_cliente },
+      });
+      if (!chamado) throw new NotFoundException('Chamado não encontrado');
+    }
+    if (temMudanca) {
+      const mudanca = await this.prisma.mudancas.findFirst({
+        where: { id: dto.id_mudanca, id_cliente: user.id_cliente },
+      });
+      if (!mudanca) throw new NotFoundException('Mudança não encontrada');
+    }
+    const aprovador = await this.prisma.usuarios.findFirst({
+      where: { id: dto.id_aprovador, id_cliente: user.id_cliente },
+    });
+    if (!aprovador) throw new NotFoundException('Aprovador não encontrado');
+    if (aprovador.perfil !== 'GESTOR' && aprovador.perfil !== 'ADMIN') {
+      throw new BadRequestException('O aprovador precisa ser GESTOR ou ADMIN');
+    }
+    return this.prisma.$transaction(async (tx) => {
+      const row = await tx.requisicoes_aprovacao.create({
+        data: {
+          id_cliente: user.id_cliente,
+          id_chamado: dto.id_chamado,
+          id_mudanca: dto.id_mudanca,
+          id_solicitante: user.id,
+          id_aprovador: dto.id_aprovador,
+          descricao: dto.descricao.trim(),
+          status: 'PENDENTE',
+        },
+      });
+      await this.audit.record(tx, {
+        id_cliente: user.id_cliente,
+        acao: 'CREATE_APPROVAL',
+        tabela_afetada: 'requisicoes_aprovacao',
+        registro_id: row.id,
+        valor_anterior: null,
+        valor_novo: {
+          id_chamado: row.id_chamado,
+          id_mudanca: row.id_mudanca,
+          id_aprovador: row.id_aprovador,
+          status: row.status,
+        },
+      });
+      return row;
     });
   }
 

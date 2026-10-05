@@ -10,16 +10,21 @@ import {
 import { CurrentUser } from '../auth/current-user.decorator.js';
 import type { AuthUser } from '../auth/auth.types.js';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { SlaService } from '../sla/sla.service.js';
 
 @Controller()
 export class ApiController {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly prazos: SlaService,
+  ) {}
 
   @Get('dashboards/resumo')
-  resumo(@CurrentUser() user: AuthUser) {
+  async resumo(@CurrentUser() user: AuthUser) {
+    await this.prazos.atualizarVencidos(user.id_cliente);
     return this.prisma.chamados.groupBy({
       by: ['status'],
-      where: this.tenant(user),
+      where: this.chamadosDoUsuario(user),
       _count: true,
     });
   }
@@ -74,10 +79,11 @@ export class ApiController {
   }
 
   @Get('chamados')
-  chamados(@CurrentUser() user: AuthUser, @Query('status') status?: string) {
+  async chamados(@CurrentUser() user: AuthUser, @Query('status') status?: string) {
+    await this.prazos.atualizarVencidos(user.id_cliente);
     return this.prisma.chamados.findMany({
       where: {
-        ...this.tenant(user),
+        ...this.chamadosDoUsuario(user),
         ...(status ? { status } : {}),
       },
       orderBy: { data_abertura: 'desc' },
@@ -93,6 +99,7 @@ export class ApiController {
     if (idCliente !== user.id_cliente) {
       throw new ForbiddenException('Recurso de outro tenant');
     }
+    await this.prazos.atualizarVencidos(user.id_cliente);
     const chamado = await this.prisma.chamados.findUnique({
       where: { id_cliente_id: { id_cliente: user.id_cliente, id } },
       include: {
@@ -115,9 +122,28 @@ export class ApiController {
     if (!chamado) {
       throw new NotFoundException('Chamado não encontrado');
     }
+    if (user.perfil === 'SOLICITANTE' && chamado.id_solicitante !== user.id) {
+      throw new ForbiddenException('Chamado de outro solicitante');
+    }
+    const comentarios =
+      user.perfil === 'SOLICITANTE'
+        ? chamado.comentarios_chamados.filter((item) => item.tipo_visibilidade === 'PUBLICO')
+        : chamado.comentarios_chamados;
+    const internos = new Set(
+      chamado.comentarios_chamados
+        .filter((item) => item.tipo_visibilidade === 'INTERNO')
+        .map((item) => item.id),
+    );
+    const anexos =
+      user.perfil === 'SOLICITANTE'
+        ? chamado.anexos_chamados.filter(
+            (anexo) => anexo.id_comentario == null || !internos.has(anexo.id_comentario),
+          )
+        : chamado.anexos_chamados;
     return {
       ...chamado,
-      anexos_chamados: chamado.anexos_chamados.map((anexo) => ({
+      comentarios_chamados: comentarios,
+      anexos_chamados: anexos.map((anexo) => ({
         ...anexo,
         tamanho_bytes: Number(anexo.tamanho_bytes),
       })),
@@ -125,9 +151,10 @@ export class ApiController {
   }
 
   @Get('triagem')
-  triagem(@CurrentUser() user: AuthUser) {
+  async triagem(@CurrentUser() user: AuthUser) {
+    await this.prazos.atualizarVencidos(user.id_cliente);
     return this.prisma.chamados.findMany({
-      where: { ...this.tenant(user), status: 'NOVO' },
+      where: { ...this.chamadosDoUsuario(user), status: 'NOVO' },
       orderBy: { data_abertura: 'asc' },
     });
   }
@@ -147,7 +174,11 @@ export class ApiController {
   @Get('aprovacoes')
   aprovacoes(@CurrentUser() user: AuthUser) {
     return this.prisma.requisicoes_aprovacao.findMany({
-      where: { ...this.tenant(user), status: 'PENDENTE' },
+      where: {
+        ...this.tenant(user),
+        status: 'PENDENTE',
+        ...(user.perfil === 'SOLICITANTE' ? { id_solicitante: user.id } : {}),
+      },
     });
   }
 
@@ -193,5 +224,12 @@ export class ApiController {
 
   private tenant(user: AuthUser) {
     return { id_cliente: user.id_cliente };
+  }
+
+  private chamadosDoUsuario(user: AuthUser) {
+    return {
+      id_cliente: user.id_cliente,
+      ...(user.perfil === 'SOLICITANTE' ? { id_solicitante: user.id } : {}),
+    };
   }
 }
