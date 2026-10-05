@@ -1,5 +1,6 @@
 import { Logger, ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
+import compression from 'compression';
 import type { NextFunction, Request, Response } from 'express';
 import { AppModule } from './app.module.js';
 
@@ -16,9 +17,11 @@ process.on('uncaughtException', (error) => {
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
   app.enableShutdownHooks();
+  app.use(compression());
   app.setGlobalPrefix('api');
   app.enableCors({
     origin: process.env.CORS_ORIGIN ?? true,
+    exposedHeaders: ['X-Total-Count'],
   });
   app.getHttpAdapter().getInstance().use((_: Request, res: Response, next: NextFunction) => {
     res.setTimeout(60_000);

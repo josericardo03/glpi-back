@@ -64,6 +64,24 @@ export class SchemaBootstrapService implements OnModuleInit {
         await client.query(correcoes);
         this.logger.log('Correções de dados ITSM aplicadas.');
       }
+
+      const indicesPath = join(process.cwd(), 'prisma', 'sql', 'itsm-indices.sql');
+      if (existsSync(indicesPath)) {
+        const indices = await readFile(indicesPath, 'utf8');
+        await client.query(indices);
+        this.logger.log('Índices ITSM aplicados.');
+      }
+      try {
+        await client.query('CREATE EXTENSION IF NOT EXISTS pg_trgm');
+        await client.query(
+          'CREATE INDEX IF NOT EXISTS idx_chamados_titulo_trgm ON chamados USING gin (titulo gin_trgm_ops)',
+        );
+        this.logger.log('Índice trigram de chamados aplicado.');
+      } catch (erro) {
+        this.logger.warn(
+          `Índice trigram não aplicado. ${erro instanceof Error ? erro.message : String(erro)}`,
+        );
+      }
     } catch (error) {
       this.logger.warn(
         `Não foi possível aplicar o schema SQL (Postgres/TLS). A API sobe mesmo assim. ${

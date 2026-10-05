@@ -43,6 +43,7 @@ model artigos_kb {
 
   @@id([id_cliente, id], map: "pk_artigos_kb")
   @@index([id_cliente, id_categoria], map: "idx_artigos_kb_categoria")
+  @@index([id_cliente, status], map: "idx_artigos_kb_status")
 }
 
 model ativos_cmdb {
@@ -143,6 +144,9 @@ model chamados {
   @@index([id_cliente, id_solicitante], map: "idx_chamados_cliente_solicitante")
   @@index([id_cliente, status, prioridade], map: "idx_chamados_cliente_status_prioridade")
   @@index([id_cliente, id_tecnico_atribuido], map: "idx_chamados_cliente_tecnico")
+  @@index([id_cliente, data_abertura(sort: Desc)], map: "idx_chamados_cliente_abertura")
+  @@index([id_cliente, data_resolucao], map: "idx_chamados_cliente_resolucao")
+  @@index([id_cliente, status, data_abertura(sort: Desc)], map: "idx_chamados_cliente_status_abertura")
 }
 
 model chamados_ativos {
@@ -502,6 +506,7 @@ model notificacoes {
   usuarios     usuarios @relation(fields: [id_cliente, id_usuario], references: [id_cliente, id], onDelete: Cascade, onUpdate: NoAction, map: "fk_notif_usuario")
 
   @@id([id_cliente, id], map: "pk_notificacoes")
+  @@index([id_cliente, id_usuario, lida, data_criacao(sort: Desc)], map: "idx_notif_usuario_lida")
 }
 
 model pausas_sla {
@@ -606,6 +611,7 @@ model requisicoes_aprovacao {
   solicitante             usuarios  @relation("solicitante_aprovacao", fields: [id_cliente, id_solicitante], references: [id_cliente, id], onUpdate: NoAction, map: "fk_aprov_solicitante")
 
   @@id([id_cliente, id], map: "pk_requisicoes_aprovacao")
+  @@index([id_cliente, status, data_solicitacao], map: "idx_aprov_status_data")
 }
 
 model usuarios {

@@ -15,10 +15,9 @@ export class PrismaService
     if (!url) {
       throw new Error('DATABASE_URL não definida');
     }
-    const pedido = Number(process.env.PG_POOL_MAX ?? 20);
-    const max = Number.isFinite(pedido) && pedido > 0 ? pedido : 20;
+    const { connectionString, max } = poolConfig(url);
     const pool = new Pool({
-      connectionString: url,
+      connectionString,
       max,
       idleTimeoutMillis: 30_000,
       connectionTimeoutMillis: 5_000,
@@ -39,4 +38,14 @@ export class PrismaService
   async onModuleDestroy() {
     await this.$disconnect();
   }
+}
+
+function poolConfig(url: string) {
+  const limiteUrl = url.match(/[?&]connection_limit=(\d+)/);
+  const semLimite = url
+    .replace(/([?&])connection_limit=\d+&/, '$1')
+    .replace(/[?&]connection_limit=\d+$/, '');
+  const pedido = Number(process.env.PG_POOL_MAX ?? limiteUrl?.[1] ?? 20);
+  const max = Number.isFinite(pedido) && pedido > 0 ? pedido : 20;
+  return { connectionString: semLimite, max };
 }

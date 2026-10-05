@@ -7,24 +7,35 @@ import {
   Param,
   ParseIntPipe,
   Query,
+  Res,
 } from '@nestjs/common';
+import type { Response } from 'express';
 import { mascararConfig } from '../admin/segredo.js';
 import { CurrentUser } from '../auth/current-user.decorator.js';
 import { Roles } from '../auth/roles.js';
 import type { AuthUser } from '../auth/auth.types.js';
 import { PrismaService } from '../prisma/prisma.service.js';
+import type { ConsultaLista } from './chamado-consulta.js';
+import { ListagemService } from './listagem.service.js';
+import { PainelService } from './painel.service.js';
 
 @Controller()
 export class ApiController {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly listagem: ListagemService,
+    private readonly painel: PainelService,
+  ) {}
 
   @Get('dashboards/resumo')
-  resumo(@CurrentUser() user: AuthUser) {
-    return this.prisma.chamados.groupBy({
-      by: ['status'],
-      where: this.chamadosDoUsuario(user),
-      _count: true,
-    });
+  resumo(@CurrentUser() user: AuthUser, @Query('periodo') periodo?: string) {
+    return this.painel.resumo(user, periodo);
+  }
+
+  @Get('relatorios/tma')
+  @Roles('GESTOR')
+  tma(@CurrentUser() user: AuthUser, @Query('de') de?: string, @Query('ate') ate?: string) {
+    return this.painel.tma(user, de, ate);
   }
 
   @Get('clientes')
@@ -93,20 +104,14 @@ export class ApiController {
   }
 
   @Get('chamados')
-  chamados(
+  async chamados(
     @CurrentUser() user: AuthUser,
-    @Query('status') status?: string,
-    @Query('limite') limite?: string,
-    @Query('pagina') pagina?: string,
+    @Query() consulta: ConsultaLista,
+    @Res({ passthrough: true }) res: Response,
   ) {
-    return this.prisma.chamados.findMany({
-      where: {
-        ...this.chamadosDoUsuario(user),
-        ...(status ? { status } : {}),
-      },
-      orderBy: { data_abertura: 'desc' },
-      ...this.fatia(limite, pagina, 100, 200),
-    });
+    const { rows, total } = await this.listagem.chamados(user, consulta, 'chamados');
+    res.setHeader('X-Total-Count', String(total));
+    return rows;
   }
 
   @Get('chamados/:idCliente/:id')
@@ -201,88 +206,68 @@ export class ApiController {
   }
 
   @Get('triagem')
-  triagem(
+  async triagem(
     @CurrentUser() user: AuthUser,
-    @Query('limite') limite?: string,
-    @Query('pagina') pagina?: string,
+    @Query() consulta: ConsultaLista,
+    @Res({ passthrough: true }) res: Response,
   ) {
-    return this.prisma.chamados.findMany({
-      where: { ...this.chamadosDoUsuario(user), status: 'NOVO' },
-      orderBy: { data_abertura: 'asc' },
-      ...this.fatia(limite, pagina, 100, 200),
-    });
+    const { rows, total } = await this.listagem.chamados(user, consulta, 'triagem');
+    res.setHeader('X-Total-Count', String(total));
+    return rows;
   }
 
   @Get('ativos')
-  ativos(
+  async ativos(
     @CurrentUser() user: AuthUser,
-    @Query('limite') limite?: string,
-    @Query('pagina') pagina?: string,
+    @Query() consulta: ConsultaLista,
+    @Res({ passthrough: true }) res: Response,
   ) {
-    return this.prisma.ativos_cmdb.findMany({
-      where: {
-        ...this.tenant(user),
-        ...(user.perfil === 'SOLICITANTE' ? { id_usuario_atribuido: user.id } : {}),
-      },
-      ...this.fatia(limite, pagina, 100, 200),
-    });
+    const { rows, total } = await this.listagem.ativos(user, consulta);
+    res.setHeader('X-Total-Count', String(total));
+    return rows;
   }
 
   @Get('artigos-kb')
   async artigos(
     @CurrentUser() user: AuthUser,
-    @Query('limite') limite?: string,
-    @Query('pagina') pagina?: string,
-    @Query('status') status?: string,
-    @Query('meus') meus?: string,
+    @Query() consulta: ConsultaLista,
+    @Res({ passthrough: true }) res: Response,
   ) {
-    const statusValidos = ['RASCUNHO', 'REVISAO', 'PUBLICADO', 'ARQUIVADO'];
-    if (status && !statusValidos.includes(status)) {
-      throw new BadRequestException('status de artigo inválido');
-    }
-    const tecnico = user.perfil !== 'SOLICITANTE';
-    const meusArtigos = tecnico && meus === 'true';
-    const statusFiltro = tecnico && status ? status : meusArtigos ? undefined : 'PUBLICADO';
-    const rows = await this.prisma.artigos_kb.findMany({
-      where: {
-        ...this.tenant(user),
-        ...(statusFiltro ? { status: statusFiltro } : {}),
-        ...(meusArtigos ? { id_autor: user.id } : {}),
-      },
-      include: { feedbacks_artigos_kb: { select: { util: true, id_usuario: true } } },
-      orderBy: { data_atualizacao: 'desc' },
-      ...this.fatia(limite, pagina, 50, 100),
-    });
-    return rows.map(({ feedbacks_artigos_kb, ...artigo }) => this.comVotos(artigo, feedbacks_artigos_kb, user.id));
+    const { rows, total } = await this.listagem.artigos(user, consulta);
+    res.setHeader('X-Total-Count', String(total));
+    return rows;
   }
 
   @Get('aprovacoes')
-  aprovacoes(
+  async aprovacoes(
     @CurrentUser() user: AuthUser,
-    @Query('limite') limite?: string,
-    @Query('pagina') pagina?: string,
-    @Query('status') status?: string,
+    @Query() consulta: ConsultaLista,
+    @Res({ passthrough: true }) res: Response,
   ) {
-    const permitidos = ['PENDENTE', 'APROVADO', 'REJEITADO', 'CANCELADO', 'TODOS'];
-    if (status && !permitidos.includes(status)) {
-      throw new BadRequestException('status de aprovação inválido');
-    }
-    const filtro = !status || status === 'PENDENTE' ? 'PENDENTE' : status;
-    return this.prisma.requisicoes_aprovacao.findMany({
-      where: {
-        ...this.tenant(user),
-        ...(filtro === 'TODOS' ? {} : { status: filtro }),
-        ...(user.perfil === 'SOLICITANTE' ? { id_solicitante: user.id } : {}),
-      },
-      orderBy: { data_solicitacao: 'desc' },
-      ...this.fatia(limite, pagina, 50, 100),
+    const { rows, total } = await this.listagem.aprovacoes(user, consulta);
+    res.setHeader('X-Total-Count', String(total));
+    return rows;
+  }
+
+  @Get('notificacoes/nao-lidas/total')
+  async notificacoesNaoLidas(@CurrentUser() user: AuthUser) {
+    const total = await this.prisma.notificacoes.count({
+      where: { id_cliente: user.id_cliente, id_usuario: user.id, lida: false },
     });
+    return { total };
   }
 
   @Get('notificacoes')
-  notificacoes(@CurrentUser() user: AuthUser) {
+  notificacoes(@CurrentUser() user: AuthUser, @Query('lida') lida?: string) {
+    if (lida !== undefined && lida !== 'true' && lida !== 'false') {
+      throw new BadRequestException('lida inválido');
+    }
     return this.prisma.notificacoes.findMany({
-      where: { id_cliente: user.id_cliente, id_usuario: user.id },
+      where: {
+        id_cliente: user.id_cliente,
+        id_usuario: user.id,
+        ...(lida === undefined ? {} : { lida: lida === 'true' }),
+      },
       orderBy: { data_criacao: 'desc' },
       take: 50,
     });
@@ -319,71 +304,28 @@ export class ApiController {
   @Roles('TECNICO')
   async problemas(
     @CurrentUser() user: AuthUser,
-    @Query('limite') limite?: string,
-    @Query('pagina') pagina?: string,
+    @Query() consulta: ConsultaLista,
+    @Res({ passthrough: true }) res: Response,
   ) {
-    const rows = await this.prisma.problemas.findMany({
-      where: this.tenant(user),
-      include: {
-        chamados_problemas: {
-          include: { chamados: { select: { id: true, titulo: true, status: true } } },
-        },
-      },
-      orderBy: { data_identificacao: 'desc' },
-      ...this.fatia(limite, pagina, 50, 100),
-    });
-    return rows.map(({ chamados_problemas, ...problema }) => ({
-      ...problema,
-      chamados: chamados_problemas.map((vinculo) => vinculo.chamados),
-    }));
+    const { rows, total } = await this.listagem.problemas(user, consulta);
+    res.setHeader('X-Total-Count', String(total));
+    return rows;
   }
 
   @Get('mudancas')
   @Roles('TECNICO')
   async mudancas(
     @CurrentUser() user: AuthUser,
-    @Query('limite') limite?: string,
-    @Query('pagina') pagina?: string,
+    @Query() consulta: ConsultaLista,
+    @Res({ passthrough: true }) res: Response,
   ) {
-    const rows = await this.prisma.mudancas.findMany({
-      where: this.tenant(user),
-      include: {
-        mudancas_chamados: {
-          include: { chamados: { select: { id: true, titulo: true, status: true } } },
-        },
-      },
-      orderBy: { data_criacao: 'desc' },
-      ...this.fatia(limite, pagina, 50, 100),
-    });
-    return rows.map(({ mudancas_chamados, ...mudanca }) => ({
-      ...mudanca,
-      chamados: mudancas_chamados.map((vinculo) => vinculo.chamados),
-    }));
+    const { rows, total } = await this.listagem.mudancas(user, consulta);
+    res.setHeader('X-Total-Count', String(total));
+    return rows;
   }
 
   private tenant(user: AuthUser) {
     return { id_cliente: user.id_cliente };
-  }
-
-  private chamadosDoUsuario(user: AuthUser) {
-    return {
-      id_cliente: user.id_cliente,
-      ...(user.perfil === 'SOLICITANTE' ? { id_solicitante: user.id } : {}),
-    };
-  }
-
-  private comVotos<T extends object>(
-    artigo: T,
-    votos: { util: boolean; id_usuario: number }[],
-    idUsuario: number,
-  ) {
-    const meu = votos.find((voto) => voto.id_usuario === idUsuario);
-    return {
-      ...artigo,
-      votos_uteis: votos.filter((voto) => voto.util).length,
-      votos_nao_uteis: votos.filter((voto) => !voto.util).length,
-      meu_voto: meu ? meu.util : null,
-    };
   }
 
   private fatia(limite: string | undefined, pagina: string | undefined, padrao: number, teto: number) {
