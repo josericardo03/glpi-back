@@ -492,7 +492,7 @@ export class ChamadosService {
         tabela_afetada: 'chamados_ativos',
         registro_id: id,
         valor_anterior: null,
-        valor_novo: { id_ativo: dto.id_ativo },
+        valor_novo: { id_chamado: id, id_ativo: dto.id_ativo },
       });
       return link;
     } catch (error) {

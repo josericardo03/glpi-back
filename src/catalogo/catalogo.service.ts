@@ -16,6 +16,8 @@ import {
   CreateProblemaDto,
   CsatDto,
   DecisaoDto,
+  UpdateMudancaDto,
+  UpdateProblemaDto,
 } from './dto/catalogo.dto.js';
 
 @Injectable()
@@ -161,6 +163,115 @@ export class CatalogoService {
     });
   }
 
+  async obterProblema(user: AuthUser, id: number) {
+    const row = await this.prisma.problemas.findFirst({
+      where: { id, id_cliente: user.id_cliente },
+      include: {
+        chamados_problemas: {
+          include: { chamados: { select: { id: true, titulo: true, status: true } } },
+        },
+      },
+    });
+    if (!row) throw new NotFoundException('Problema não encontrado');
+    return {
+      ...row,
+      chamados: row.chamados_problemas.map((vinculo) => vinculo.chamados),
+    };
+  }
+
+  async atualizarProblema(user: AuthUser, id: number, dto: UpdateProblemaDto) {
+    const atual = await this.prisma.problemas.findFirst({
+      where: { id, id_cliente: user.id_cliente },
+    });
+    if (!atual) throw new NotFoundException('Problema não encontrado');
+    if (typeof dto.id_tecnico_atribuido === 'number') {
+      const tecnico = await this.prisma.usuarios.findFirst({
+        where: { id: dto.id_tecnico_atribuido, id_cliente: user.id_cliente },
+      });
+      if (!tecnico) throw new NotFoundException('Técnico não encontrado');
+    }
+    const encerra = dto.status === 'RESOLVIDO' || dto.status === 'FECHADO';
+    return this.prisma.$transaction(async (tx) => {
+      const row = await tx.problemas.update({
+        where: { id_cliente_id: { id_cliente: user.id_cliente, id } },
+        data: {
+          status: dto.status,
+          causa_raiz: textoOuNulo(dto.causa_raiz),
+          solucao_contorno: textoOuNulo(dto.solucao_contorno),
+          id_tecnico_atribuido:
+            dto.id_tecnico_atribuido === undefined ? undefined : dto.id_tecnico_atribuido,
+          data_resolucao:
+            dto.data_resolucao === undefined
+              ? encerra && !atual.data_resolucao
+                ? new Date()
+                : undefined
+              : dto.data_resolucao === null
+                ? null
+                : new Date(dto.data_resolucao),
+        },
+      });
+      await this.audit.record(tx, {
+        id_cliente: user.id_cliente,
+        acao: 'UPDATE_PROBLEMA',
+        tabela_afetada: 'problemas',
+        registro_id: id,
+        valor_anterior: { status: atual.status },
+        valor_novo: { status: row.status, causa_raiz: row.causa_raiz },
+      });
+      return row;
+    });
+  }
+
+  async obterMudanca(user: AuthUser, id: number) {
+    const row = await this.prisma.mudancas.findFirst({
+      where: { id, id_cliente: user.id_cliente },
+      include: {
+        mudancas_chamados: {
+          include: { chamados: { select: { id: true, titulo: true, status: true } } },
+        },
+      },
+    });
+    if (!row) throw new NotFoundException('Mudança não encontrada');
+    return {
+      ...row,
+      chamados: row.mudancas_chamados.map((vinculo) => vinculo.chamados),
+    };
+  }
+
+  async atualizarMudanca(user: AuthUser, id: number, dto: UpdateMudancaDto) {
+    const atual = await this.prisma.mudancas.findFirst({
+      where: { id, id_cliente: user.id_cliente },
+    });
+    if (!atual) throw new NotFoundException('Mudança não encontrada');
+    if (dto.janela_inicio === null || dto.janela_fim === null) {
+      throw new BadRequestException('A janela da mudança não pode ser removida');
+    }
+    const inicio = dto.janela_inicio ? new Date(dto.janela_inicio) : atual.janela_inicio;
+    const fim = dto.janela_fim ? new Date(dto.janela_fim) : atual.janela_fim;
+    if (!(fim > inicio)) {
+      throw new BadRequestException('janela_fim deve ser posterior a janela_inicio');
+    }
+    return this.prisma.$transaction(async (tx) => {
+      const row = await tx.mudancas.update({
+        where: { id_cliente_id: { id_cliente: user.id_cliente, id } },
+        data: {
+          status: dto.status,
+          janela_inicio: dto.janela_inicio ? inicio : undefined,
+          janela_fim: dto.janela_fim ? fim : undefined,
+        },
+      });
+      await this.audit.record(tx, {
+        id_cliente: user.id_cliente,
+        acao: 'UPDATE_MUDANCA',
+        tabela_afetada: 'mudancas',
+        registro_id: id,
+        valor_anterior: { status: atual.status },
+        valor_novo: { status: row.status },
+      });
+      return row;
+    });
+  }
+
   async criarAprovacao(user: AuthUser, dto: CreateAprovacaoDto) {
     const temChamado = dto.id_chamado != null;
     const temMudanca = dto.id_mudanca != null;
@@ -239,6 +350,12 @@ export class CatalogoService {
           id_aprovador: user.id,
         },
       });
+      if (saved.id_mudanca) {
+        await tx.mudancas.update({
+          where: { id_cliente_id: { id_cliente: user.id_cliente, id: saved.id_mudanca } },
+          data: { status: dto.status === 'APROVADO' ? 'AGENDADA' : 'CANCELADA' },
+        });
+      }
       await this.audit.record(tx, {
         id_cliente: user.id_cliente,
         acao: 'APPROVAL_DECISION',
@@ -251,4 +368,10 @@ export class CatalogoService {
     });
     return atualizada;
   }
+}
+
+function textoOuNulo(valor: string | null | undefined) {
+  if (valor === undefined) return undefined;
+  const limpo = valor?.trim() ?? '';
+  return limpo || null;
 }

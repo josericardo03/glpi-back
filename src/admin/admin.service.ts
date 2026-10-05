@@ -23,6 +23,9 @@ import {
   CreatePoliticaDto,
   CreateUsuarioAdminDto,
   FiltroAuditoriaDto,
+  UpdateFeriadoDto,
+  UpdateHorarioDto,
+  UpdatePoliticaDto,
   UpdateUsuarioAdminDto,
 } from './dto/admin.dto.js';
 import { criptografarConfig, mascararConfig } from './segredo.js';
@@ -530,6 +533,8 @@ export class AdminService {
       if (/^\d{4}-\d{2}-\d{2}$/.test(filtro.data_fim)) fim.setUTCHours(23, 59, 59, 999);
       dataCriacao.lte = fim;
     }
+    const limite = Math.min(200, filtro.limite ?? 100);
+    const pagina = Math.max(1, filtro.pagina ?? 1);
     return this.prisma.logs_auditoria.findMany({
       where: {
         id_cliente: user.id_cliente,
@@ -538,8 +543,180 @@ export class AdminService {
         ...(filtro.data_inicio || filtro.data_fim ? { data_criacao: dataCriacao } : {}),
       },
       orderBy: { data_criacao: 'desc' },
-      take: 200,
+      skip: (pagina - 1) * limite,
+      take: limite,
     });
+  }
+
+  async listarHorarios(user: AuthUser) {
+    const rows = await this.prisma.horarios_comerciais.findMany({
+      where: { id_cliente: user.id_cliente },
+      include: { intervalos_horarios: { orderBy: [{ dia_semana: 'asc' }, { hora_inicio: 'asc' }] } },
+      orderBy: { nome: 'asc' },
+    });
+    return rows.map((row) => ({
+      id: row.id,
+      nome: row.nome,
+      fuso_horario: row.fuso_horario,
+      status: row.status,
+      intervalos: row.intervalos_horarios.map((intervalo) => ({
+        id: intervalo.id,
+        dia_semana: intervalo.dia_semana,
+        hora_inicio: this.formatarHora(intervalo.hora_inicio),
+        hora_fim: this.formatarHora(intervalo.hora_fim),
+      })),
+    }));
+  }
+
+  async atualizarHorario(user: AuthUser, id: number, dto: UpdateHorarioDto) {
+    const atual = await this.prisma.horarios_comerciais.findFirst({
+      where: { id, id_cliente: user.id_cliente },
+    });
+    if (!atual) throw new NotFoundException('Horário comercial não encontrado');
+    return this.prisma.horarios_comerciais.update({
+      where: { id_cliente_id: { id_cliente: user.id_cliente, id } },
+      data: {
+        nome: dto.nome?.trim(),
+        fuso_horario: dto.fuso_horario?.trim(),
+        status: dto.status,
+      },
+    });
+  }
+
+  async removerHorario(user: AuthUser, id: number) {
+    const atual = await this.prisma.horarios_comerciais.findFirst({
+      where: { id, id_cliente: user.id_cliente },
+    });
+    if (!atual) throw new NotFoundException('Horário comercial não encontrado');
+    try {
+      await this.prisma.horarios_comerciais.delete({
+        where: { id_cliente_id: { id_cliente: user.id_cliente, id } },
+      });
+    } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2003') {
+        throw new ConflictException('Horário usado por uma política de SLA');
+      }
+      throw error;
+    }
+    return { removido: true, id };
+  }
+
+  async atualizarIntervalo(user: AuthUser, idHorario: number, idIntervalo: number, dto: CreateIntervaloDto) {
+    const existe = await this.prisma.intervalos_horarios.findFirst({
+      where: { id: idIntervalo, id_horario_comercial: idHorario, id_cliente: user.id_cliente },
+    });
+    if (!existe) throw new NotFoundException('Intervalo não encontrado');
+    const inicio = this.normalizarHora(dto.hora_inicio);
+    const fim = this.normalizarHora(dto.hora_fim);
+    if (fim <= inicio) throw new BadRequestException('hora_fim deve ser posterior a hora_inicio');
+    try {
+      const rows = await this.prisma.$queryRaw<
+        { id: number; dia_semana: number; hora_inicio: string; hora_fim: string }[]
+      >`
+        UPDATE intervalos_horarios
+        SET dia_semana = ${dto.dia_semana}, hora_inicio = ${inicio}::time, hora_fim = ${fim}::time
+        WHERE id_cliente = ${user.id_cliente} AND id = ${idIntervalo} AND id_horario_comercial = ${idHorario}
+        RETURNING id, dia_semana, hora_inicio::text, hora_fim::text
+      `;
+      return rows[0];
+    } catch (error) {
+      throw this.traduzir(error, 'Intervalo inválido');
+    }
+  }
+
+  async removerIntervalo(user: AuthUser, idHorario: number, idIntervalo: number) {
+    const row = await this.prisma.intervalos_horarios.findFirst({
+      where: { id: idIntervalo, id_horario_comercial: idHorario, id_cliente: user.id_cliente },
+    });
+    if (!row) throw new NotFoundException('Intervalo não encontrado');
+    await this.prisma.intervalos_horarios.delete({
+      where: { id_cliente_id: { id_cliente: user.id_cliente, id: idIntervalo } },
+    });
+    return { removido: true, id: idIntervalo };
+  }
+
+  async listarFeriados(user: AuthUser) {
+    return this.prisma.feriados.findMany({
+      where: { id_cliente: user.id_cliente },
+      orderBy: [{ mes: 'asc' }, { dia: 'asc' }, { ano: 'asc' }],
+    });
+  }
+
+  async atualizarFeriado(user: AuthUser, id: number, dto: UpdateFeriadoDto) {
+    const atual = await this.prisma.feriados.findFirst({
+      where: { id, id_cliente: user.id_cliente },
+    });
+    if (!atual) throw new NotFoundException('Feriado não encontrado');
+    try {
+      return await this.prisma.feriados.update({
+        where: { id_cliente_id: { id_cliente: user.id_cliente, id } },
+        data: {
+          nome: dto.nome?.trim(),
+          dia: dto.dia,
+          mes: dto.mes,
+          ...(dto.ano !== undefined ? { ano: dto.ano } : {}),
+        },
+      });
+    } catch (error) {
+      throw this.traduzir(error, 'Feriado já cadastrado nesta data');
+    }
+  }
+
+  async removerFeriado(user: AuthUser, id: number) {
+    const atual = await this.prisma.feriados.findFirst({
+      where: { id, id_cliente: user.id_cliente },
+    });
+    if (!atual) throw new NotFoundException('Feriado não encontrado');
+    await this.prisma.feriados.delete({
+      where: { id_cliente_id: { id_cliente: user.id_cliente, id } },
+    });
+    return { removido: true, id };
+  }
+
+  async atualizarPolitica(user: AuthUser, id: number, dto: UpdatePoliticaDto) {
+    const atual = await this.prisma.politicas_sla.findFirst({
+      where: { id, id_cliente: user.id_cliente },
+    });
+    if (!atual) throw new NotFoundException('Política de SLA não encontrada');
+    if (dto.id_horario_comercial) {
+      const horario = await this.prisma.horarios_comerciais.findFirst({
+        where: { id: dto.id_horario_comercial, id_cliente: user.id_cliente },
+      });
+      if (!horario) throw new NotFoundException('Horário comercial não encontrado');
+    }
+    const status = dto.status ?? atual.status;
+    const prioridade = dto.prioridade_alvo ?? atual.prioridade_alvo;
+    const tipo = dto.tipo_chamado_alvo ?? atual.tipo_chamado_alvo;
+    if (status === 'ATIVO') {
+      const outra = await this.prisma.politicas_sla.findFirst({
+        where: {
+          id_cliente: user.id_cliente,
+          prioridade_alvo: prioridade,
+          tipo_chamado_alvo: tipo,
+          status: 'ATIVO',
+          NOT: { id },
+        },
+      });
+      if (outra) {
+        throw new ConflictException('Já existe política de SLA ativa para esta prioridade e tipo');
+      }
+    }
+    try {
+      return await this.prisma.politicas_sla.update({
+        where: { id_cliente_id: { id_cliente: user.id_cliente, id } },
+        data: {
+          nome: dto.nome?.trim(),
+          prioridade_alvo: dto.prioridade_alvo,
+          tipo_chamado_alvo: dto.tipo_chamado_alvo,
+          tempo_resposta_min: dto.tempo_resposta_min,
+          tempo_resolucao_min: dto.tempo_resolucao_min,
+          id_horario_comercial: dto.id_horario_comercial,
+          status: dto.status,
+        },
+      });
+    } catch (error) {
+      throw this.traduzir(error, 'Já existe política de SLA ativa para esta prioridade e tipo');
+    }
   }
 
   private async normalizarSenha(valor: string) {
@@ -599,6 +776,13 @@ export class AdminService {
       return new BadRequestException('hora_fim deve ser posterior a hora_inicio');
     }
     return error;
+  }
+
+  private formatarHora(valor: Date) {
+    const hora = String(valor.getUTCHours()).padStart(2, '0');
+    const minuto = String(valor.getUTCMinutes()).padStart(2, '0');
+    const segundo = String(valor.getUTCSeconds()).padStart(2, '0');
+    return `${hora}:${minuto}:${segundo}`;
   }
 
   private normalizarHora(valor: string) {

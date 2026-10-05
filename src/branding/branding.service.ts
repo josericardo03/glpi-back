@@ -26,7 +26,7 @@ export class BrandingService {
           });
       await this.audit.record(tx, {
         id_cliente: user.id_cliente,
-        acao: 'UPDATE_BRANDING',
+        acao: 'UPSERT_BRANDING',
         tabela_afetada: 'configuracoes_branding',
         registro_id: row.id,
         valor_anterior: anterior ? { nome_portal: anterior.nome_portal } : null,

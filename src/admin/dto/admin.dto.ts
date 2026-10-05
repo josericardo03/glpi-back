@@ -301,6 +301,88 @@ export class CreateIntegracaoDto {
   status?: (typeof STATUS_SIMPLES)[number];
 }
 
+export class UpdatePoliticaDto {
+  @IsOptional()
+  @IsString()
+  @MinLength(2)
+  @MaxLength(100)
+  nome?: string;
+
+  @IsOptional()
+  @IsIn(PRIORIDADES)
+  prioridade_alvo?: (typeof PRIORIDADES)[number];
+
+  @IsOptional()
+  @IsIn(TIPOS)
+  tipo_chamado_alvo?: (typeof TIPOS)[number];
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  tempo_resposta_min?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  tempo_resolucao_min?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  id_horario_comercial?: number;
+
+  @IsOptional()
+  @IsIn(STATUS_SIMPLES)
+  status?: (typeof STATUS_SIMPLES)[number];
+}
+
+export class UpdateHorarioDto {
+  @IsOptional()
+  @IsString()
+  @MinLength(2)
+  @MaxLength(100)
+  nome?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(50)
+  fuso_horario?: string;
+
+  @IsOptional()
+  @IsIn(STATUS_SIMPLES)
+  status?: (typeof STATUS_SIMPLES)[number];
+}
+
+export class UpdateFeriadoDto {
+  @IsOptional()
+  @IsString()
+  @MinLength(2)
+  @MaxLength(100)
+  nome?: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(31)
+  dia?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(12)
+  mes?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(2000)
+  ano?: number | null;
+}
+
 export class FiltroAuditoriaDto {
   @IsOptional()
   @IsDateString()
@@ -319,4 +401,17 @@ export class FiltroAuditoriaDto {
   @IsString()
   @MaxLength(100)
   acao?: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  pagina?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(200)
+  limite?: number;
 }

@@ -28,7 +28,7 @@ export class DepartamentosService {
         });
         await this.audit.record(tx, {
           id_cliente: user.id_cliente,
-          acao: 'CREATE_DEPARTAMENTO',
+          acao: 'CREATE_DEPARTMENT',
           tabela_afetada: 'departamentos',
           registro_id: row.id,
           valor_anterior: null,

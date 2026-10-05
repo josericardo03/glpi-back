@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   HttpCode,
   HttpStatus,
@@ -27,6 +28,9 @@ import {
   CreatePoliticaDto,
   CreateUsuarioAdminDto,
   FiltroAuditoriaDto,
+  UpdateFeriadoDto,
+  UpdateHorarioDto,
+  UpdatePoliticaDto,
   UpdateUsuarioAdminDto,
 } from './dto/admin.dto.js';
 import { AdminService } from './admin.service.js';
@@ -73,6 +77,28 @@ export class AdminController {
     return this.admin.criarGrupo(user, dto);
   }
 
+  @Get('horarios-comerciais')
+  @Roles('ADMIN')
+  listarHorarios(@CurrentUser() user: AuthUser) {
+    return this.admin.listarHorarios(user);
+  }
+
+  @Patch('horarios-comerciais/:id')
+  @Roles('ADMIN')
+  atualizarHorario(
+    @CurrentUser() user: AuthUser,
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: UpdateHorarioDto,
+  ) {
+    return this.admin.atualizarHorario(user, id, dto);
+  }
+
+  @Delete('horarios-comerciais/:id')
+  @Roles('ADMIN')
+  removerHorario(@CurrentUser() user: AuthUser, @Param('id', ParseIntPipe) id: number) {
+    return this.admin.removerHorario(user, id);
+  }
+
   @Post('horarios-comerciais')
   @Roles('ADMIN')
   @HttpCode(HttpStatus.CREATED)
@@ -91,11 +117,64 @@ export class AdminController {
     return this.admin.criarIntervalo(user, id, dto);
   }
 
+  @Patch('horarios-comerciais/:id/intervalos/:idIntervalo')
+  @Roles('ADMIN')
+  atualizarIntervalo(
+    @CurrentUser() user: AuthUser,
+    @Param('id', ParseIntPipe) id: number,
+    @Param('idIntervalo', ParseIntPipe) idIntervalo: number,
+    @Body() dto: CreateIntervaloDto,
+  ) {
+    return this.admin.atualizarIntervalo(user, id, idIntervalo, dto);
+  }
+
+  @Delete('horarios-comerciais/:id/intervalos/:idIntervalo')
+  @Roles('ADMIN')
+  removerIntervalo(
+    @CurrentUser() user: AuthUser,
+    @Param('id', ParseIntPipe) id: number,
+    @Param('idIntervalo', ParseIntPipe) idIntervalo: number,
+  ) {
+    return this.admin.removerIntervalo(user, id, idIntervalo);
+  }
+
+  @Get('feriados')
+  @Roles('ADMIN')
+  listarFeriados(@CurrentUser() user: AuthUser) {
+    return this.admin.listarFeriados(user);
+  }
+
+  @Patch('feriados/:id')
+  @Roles('ADMIN')
+  atualizarFeriado(
+    @CurrentUser() user: AuthUser,
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: UpdateFeriadoDto,
+  ) {
+    return this.admin.atualizarFeriado(user, id, dto);
+  }
+
+  @Delete('feriados/:id')
+  @Roles('ADMIN')
+  removerFeriado(@CurrentUser() user: AuthUser, @Param('id', ParseIntPipe) id: number) {
+    return this.admin.removerFeriado(user, id);
+  }
+
   @Post('feriados')
   @Roles('ADMIN')
   @HttpCode(HttpStatus.CREATED)
   feriados(@CurrentUser() user: AuthUser, @Body() dto: CreateFeriadoDto) {
     return this.admin.criarFeriado(user, dto);
+  }
+
+  @Patch('politicas-sla/:id')
+  @Roles('ADMIN')
+  atualizarPolitica(
+    @CurrentUser() user: AuthUser,
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: UpdatePoliticaDto,
+  ) {
+    return this.admin.atualizarPolitica(user, id, dto);
   }
 
   @Post('politicas-sla')

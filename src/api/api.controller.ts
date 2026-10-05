@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Controller,
   ForbiddenException,
   Get,
@@ -7,7 +8,9 @@ import {
   ParseIntPipe,
   Query,
 } from '@nestjs/common';
+import { mascararConfig } from '../admin/segredo.js';
 import { CurrentUser } from '../auth/current-user.decorator.js';
+import { Roles } from '../auth/roles.js';
 import type { AuthUser } from '../auth/auth.types.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 
@@ -37,6 +40,14 @@ export class ApiController {
     @Query('limite') limite?: string,
     @Query('pagina') pagina?: string,
   ) {
+    if (user.perfil === 'SOLICITANTE') {
+      return this.prisma.usuarios.findMany({
+        where: { id_cliente: user.id_cliente, perfil: { in: ['GESTOR', 'ADMIN'] } },
+        select: { id: true, nome: true, perfil: true },
+        orderBy: { nome: 'asc' },
+        ...this.fatia(limite, pagina, 100, 200),
+      });
+    }
     return this.prisma.usuarios.findMany({
       where: this.tenant(user),
       ...this.fatia(limite, pagina, 100, 200),
@@ -75,7 +86,10 @@ export class ApiController {
 
   @Get('politicas-sla')
   sla(@CurrentUser() user: AuthUser) {
-    return this.prisma.politicas_sla.findMany({ where: this.tenant(user) });
+    return this.prisma.politicas_sla.findMany({
+      where: this.tenant(user),
+      include: { horarios_comerciais: { select: { id: true, nome: true, fuso_horario: true } } },
+    });
   }
 
   @Get('chamados')
@@ -108,6 +122,25 @@ export class ApiController {
       where: { id_cliente_id: { id_cliente: user.id_cliente, id } },
       include: {
         comentarios_chamados: true,
+        chamados_ativos: {
+          include: {
+            ativos_cmdb: {
+              select: { id: true, nome: true, codigo_patrimonio: true, tipo_ativo: true },
+            },
+          },
+        },
+        chamados_problemas: {
+          include: { problemas: { select: { id: true, titulo: true, status: true } } },
+        },
+        mudancas_chamados: {
+          include: { mudancas: { select: { id: true, titulo: true, status: true } } },
+        },
+        pesquisas_csat: {
+          select: { nota_satisfacao: true, comentarios: true, data_resposta: true },
+        },
+        worklogs: { orderBy: { data_execucao: 'desc' } },
+        pausas_sla: { orderBy: { data_pausa: 'desc' } },
+        historico_status_chamados: { orderBy: { data_alteracao: 'desc' } },
         anexos_chamados: {
           select: {
             id: true,
@@ -144,8 +177,21 @@ export class ApiController {
             (anexo) => anexo.id_comentario == null || !internos.has(anexo.id_comentario),
           )
         : chamado.anexos_chamados;
+    const ativos = chamado.chamados_ativos.map((vinculo) => ({
+      id: vinculo.ativos_cmdb.id,
+      nome: vinculo.ativos_cmdb.nome,
+      codigo_patrimonio: vinculo.ativos_cmdb.codigo_patrimonio,
+      tipo: vinculo.ativos_cmdb.tipo_ativo,
+    }));
     return {
       ...chamado,
+      id_ativo_afetado: ativos[0]?.id ?? null,
+      ativos,
+      problemas: chamado.chamados_problemas.map((vinculo) => vinculo.problemas),
+      mudancas: chamado.mudancas_chamados.map((vinculo) => vinculo.mudancas),
+      csat: chamado.pesquisas_csat
+        ? { ...chamado.pesquisas_csat, avaliado: true }
+        : { avaliado: false },
       comentarios_chamados: comentarios,
       anexos_chamados: anexos.map((anexo) => ({
         ...anexo,
@@ -174,21 +220,40 @@ export class ApiController {
     @Query('pagina') pagina?: string,
   ) {
     return this.prisma.ativos_cmdb.findMany({
-      where: this.tenant(user),
+      where: {
+        ...this.tenant(user),
+        ...(user.perfil === 'SOLICITANTE' ? { id_usuario_atribuido: user.id } : {}),
+      },
       ...this.fatia(limite, pagina, 100, 200),
     });
   }
 
   @Get('artigos-kb')
-  artigos(
+  async artigos(
     @CurrentUser() user: AuthUser,
     @Query('limite') limite?: string,
     @Query('pagina') pagina?: string,
+    @Query('status') status?: string,
+    @Query('meus') meus?: string,
   ) {
-    return this.prisma.artigos_kb.findMany({
-      where: { ...this.tenant(user), status: 'PUBLICADO' },
+    const statusValidos = ['RASCUNHO', 'REVISAO', 'PUBLICADO', 'ARQUIVADO'];
+    if (status && !statusValidos.includes(status)) {
+      throw new BadRequestException('status de artigo inválido');
+    }
+    const tecnico = user.perfil !== 'SOLICITANTE';
+    const meusArtigos = tecnico && meus === 'true';
+    const statusFiltro = tecnico && status ? status : meusArtigos ? undefined : 'PUBLICADO';
+    const rows = await this.prisma.artigos_kb.findMany({
+      where: {
+        ...this.tenant(user),
+        ...(statusFiltro ? { status: statusFiltro } : {}),
+        ...(meusArtigos ? { id_autor: user.id } : {}),
+      },
+      include: { feedbacks_artigos_kb: { select: { util: true, id_usuario: true } } },
+      orderBy: { data_atualizacao: 'desc' },
       ...this.fatia(limite, pagina, 50, 100),
     });
+    return rows.map(({ feedbacks_artigos_kb, ...artigo }) => this.comVotos(artigo, feedbacks_artigos_kb, user.id));
   }
 
   @Get('aprovacoes')
@@ -196,13 +261,20 @@ export class ApiController {
     @CurrentUser() user: AuthUser,
     @Query('limite') limite?: string,
     @Query('pagina') pagina?: string,
+    @Query('status') status?: string,
   ) {
+    const permitidos = ['PENDENTE', 'APROVADO', 'REJEITADO', 'CANCELADO', 'TODOS'];
+    if (status && !permitidos.includes(status)) {
+      throw new BadRequestException('status de aprovação inválido');
+    }
+    const filtro = !status || status === 'PENDENTE' ? 'PENDENTE' : status;
     return this.prisma.requisicoes_aprovacao.findMany({
       where: {
         ...this.tenant(user),
-        status: 'PENDENTE',
+        ...(filtro === 'TODOS' ? {} : { status: filtro }),
         ...(user.perfil === 'SOLICITANTE' ? { id_solicitante: user.id } : {}),
       },
+      orderBy: { data_solicitacao: 'desc' },
       ...this.fatia(limite, pagina, 50, 100),
     });
   }
@@ -217,6 +289,7 @@ export class ApiController {
   }
 
   @Get('auditoria')
+  @Roles('ADMIN')
   auditoria(@CurrentUser() user: AuthUser) {
     return this.prisma.logs_auditoria.findMany({
       where: this.tenant(user),
@@ -233,32 +306,59 @@ export class ApiController {
   }
 
   @Get('integracoes')
-  integracoes(@CurrentUser() user: AuthUser) {
-    return this.prisma.integracoes.findMany({ where: this.tenant(user) });
+  @Roles('ADMIN')
+  async integracoes(@CurrentUser() user: AuthUser) {
+    const rows = await this.prisma.integracoes.findMany({ where: this.tenant(user) });
+    return rows.map((row) => ({
+      ...row,
+      configuracoes: mascararConfig((row.configuracoes ?? {}) as Record<string, unknown>),
+    }));
   }
 
   @Get('problemas')
-  problemas(
+  @Roles('TECNICO')
+  async problemas(
     @CurrentUser() user: AuthUser,
     @Query('limite') limite?: string,
     @Query('pagina') pagina?: string,
   ) {
-    return this.prisma.problemas.findMany({
+    const rows = await this.prisma.problemas.findMany({
       where: this.tenant(user),
+      include: {
+        chamados_problemas: {
+          include: { chamados: { select: { id: true, titulo: true, status: true } } },
+        },
+      },
+      orderBy: { data_identificacao: 'desc' },
       ...this.fatia(limite, pagina, 50, 100),
     });
+    return rows.map(({ chamados_problemas, ...problema }) => ({
+      ...problema,
+      chamados: chamados_problemas.map((vinculo) => vinculo.chamados),
+    }));
   }
 
   @Get('mudancas')
-  mudancas(
+  @Roles('TECNICO')
+  async mudancas(
     @CurrentUser() user: AuthUser,
     @Query('limite') limite?: string,
     @Query('pagina') pagina?: string,
   ) {
-    return this.prisma.mudancas.findMany({
+    const rows = await this.prisma.mudancas.findMany({
       where: this.tenant(user),
+      include: {
+        mudancas_chamados: {
+          include: { chamados: { select: { id: true, titulo: true, status: true } } },
+        },
+      },
+      orderBy: { data_criacao: 'desc' },
       ...this.fatia(limite, pagina, 50, 100),
     });
+    return rows.map(({ mudancas_chamados, ...mudanca }) => ({
+      ...mudanca,
+      chamados: mudancas_chamados.map((vinculo) => vinculo.chamados),
+    }));
   }
 
   private tenant(user: AuthUser) {
@@ -269,6 +369,20 @@ export class ApiController {
     return {
       id_cliente: user.id_cliente,
       ...(user.perfil === 'SOLICITANTE' ? { id_solicitante: user.id } : {}),
+    };
+  }
+
+  private comVotos<T extends object>(
+    artigo: T,
+    votos: { util: boolean; id_usuario: number }[],
+    idUsuario: number,
+  ) {
+    const meu = votos.find((voto) => voto.id_usuario === idUsuario);
+    return {
+      ...artigo,
+      votos_uteis: votos.filter((voto) => voto.util).length,
+      votos_nao_uteis: votos.filter((voto) => !voto.util).length,
+      meu_voto: meu ? meu.util : null,
     };
   }
 

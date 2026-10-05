@@ -57,6 +57,13 @@ export class SchemaBootstrapService implements OnModuleInit {
         await client.query(sql);
         this.logger.log('Schema ITSM v7 criado no PostgreSQL.');
       }
+
+      const correcoesPath = join(process.cwd(), 'prisma', 'sql', 'itsm-correcoes.sql');
+      if (existsSync(correcoesPath)) {
+        const correcoes = await readFile(correcoesPath, 'utf8');
+        await client.query(correcoes);
+        this.logger.log('Correções de dados ITSM aplicadas.');
+      }
     } catch (error) {
       this.logger.warn(
         `Não foi possível aplicar o schema SQL (Postgres/TLS). A API sobe mesmo assim. ${

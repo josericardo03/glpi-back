@@ -51,6 +51,28 @@ export class CreateArtigoDto {
 }
 
 
+export class UpdateArtigoDto {
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  id_categoria?: number;
+
+  @IsOptional()
+  @IsString()
+  @MinLength(3)
+  @MaxLength(255)
+  titulo?: string;
+
+  @IsOptional()
+  @IsString()
+  @MinLength(3)
+  conteudo?: string;
+
+  @IsOptional()
+  @IsIn(STATUS_ARTIGO)
+  status?: (typeof STATUS_ARTIGO)[number];
+}
+
 export class FeedbackArtigoDto {
   @IsBoolean()
   util: boolean;

@@ -24,7 +24,7 @@ export class GruposService {
         });
         await this.audit.record(tx, {
           id_cliente: user.id_cliente,
-          acao: 'CREATE_GRUPO',
+          acao: 'CREATE_SUPPORT_GROUP',
           tabela_afetada: 'grupos_suporte',
           registro_id: row.id,
           valor_anterior: null,

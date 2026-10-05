@@ -45,7 +45,7 @@ export class UsuariosService {
         });
         await this.audit.record(tx, {
           id_cliente: user.id_cliente,
-          acao: 'CREATE_USUARIO',
+          acao: 'CREATE_USER',
           tabela_afetada: 'usuarios',
           registro_id: criado.id,
           valor_anterior: null,
@@ -81,7 +81,7 @@ export class UsuariosService {
       });
       await this.audit.record(tx, {
         id_cliente: user.id_cliente,
-        acao: 'UPDATE_USUARIO',
+        acao: 'UPDATE_USER',
         tabela_afetada: 'usuarios',
         registro_id: id,
         valor_anterior: { perfil: atual.perfil, status: atual.status },

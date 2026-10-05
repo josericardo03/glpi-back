@@ -1,8 +1,8 @@
-import { Body, Controller, HttpCode, HttpStatus, Param, ParseIntPipe, Post } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, HttpStatus, Param, ParseIntPipe, Patch, Post } from '@nestjs/common';
 import { CurrentUser } from '../auth/current-user.decorator.js';
 import { Roles } from '../auth/roles.js';
 import type { AuthUser } from '../auth/auth.types.js';
-import { CreateArtigoDto, CreateCategoriaKbDto, FeedbackArtigoDto } from './dto/artigo.dto.js';
+import { CreateArtigoDto, CreateCategoriaKbDto, FeedbackArtigoDto, UpdateArtigoDto } from './dto/artigo.dto.js';
 import { CreateKbArtigoDto, CreateKbCategoriaDto, FeedbackKbDto } from './dto/kb.dto.js';
 import { KbService } from './kb.service.js';
 
@@ -10,18 +10,39 @@ import { KbService } from './kb.service.js';
 export class ArtigosController {
   constructor(private readonly kb: KbService) {}
 
+  @Get('categorias-kb')
+  categorias(@CurrentUser() user: AuthUser) {
+    return this.kb.listarCategorias(user);
+  }
+
+  @Get('artigos-kb/:id')
+  @Roles('SOLICITANTE')
+  artigoPorId(@CurrentUser() user: AuthUser, @Param('id', ParseIntPipe) id: number) {
+    return this.kb.obterArtigo(user, id);
+  }
+
+  @Patch('artigos-kb/:id')
+  @Roles('TECNICO')
+  atualizarArtigo(
+    @CurrentUser() user: AuthUser,
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: UpdateArtigoDto,
+  ) {
+    return this.kb.atualizarArtigo(user, id, dto);
+  }
+
   @Post('categorias-kb')
   @Roles('TECNICO')
   @HttpCode(HttpStatus.CREATED)
   categoria(@CurrentUser() user: AuthUser, @Body() dto: CreateCategoriaKbDto) {
-    return this.kb.criarCategoria(user, dto, 'CREATE_CATEGORIA_KB');
+    return this.kb.criarCategoria(user, dto, 'CREATE_KB_CATEGORY');
   }
 
   @Post('artigos-kb')
   @Roles('TECNICO')
   @HttpCode(HttpStatus.CREATED)
   artigo(@CurrentUser() user: AuthUser, @Body() dto: CreateArtigoDto) {
-    return this.kb.criarArtigo(user, dto, 'CREATE_ARTIGO');
+    return this.kb.criarArtigo(user, dto, 'CREATE_KB_ARTICLE');
   }
 
   @Post('artigos-kb/:id/feedback')
@@ -32,7 +53,7 @@ export class ArtigosController {
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: FeedbackArtigoDto,
   ) {
-    return this.kb.feedback(user, id, dto, 'FEEDBACK_ARTIGO');
+    return this.kb.feedback(user, id, dto, 'ADD_KB_FEEDBACK');
   }
 }
 

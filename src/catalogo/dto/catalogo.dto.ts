@@ -1,4 +1,4 @@
-import { Type } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 import {
   IsDateString,
   IsIn,
@@ -9,9 +9,20 @@ import {
   MaxLength,
   Min,
   MinLength,
+  ValidateIf,
 } from 'class-validator';
 export const PRIORIDADES = ['CRITICA', 'ALTA', 'MEDIA', 'BAIXA'] as const;
 export const TIPOS_MUDANCA = ['PADRAO', 'NORMAL', 'EMERGENCIAL'] as const;
+export const STATUS_PROBLEMA = ['SOB_INVESTIGACAO', 'ERRO_CONHECIDO', 'RESOLVIDO', 'FECHADO'] as const;
+export const STATUS_MUDANCA = [
+  'RASCUNHO',
+  'AVALIACAO',
+  'APROVACAO',
+  'AGENDADA',
+  'EM_IMPLEMENTACAO',
+  'CONCLUIDA',
+  'CANCELADA',
+] as const;
 
 export class CsatDto {
   @Type(() => Number)
@@ -95,6 +106,50 @@ export class CreateMudancaDto {
   @Type(() => Number)
   @IsInt()
   id_chamado?: number;
+}
+
+export class UpdateProblemaDto {
+  @IsOptional()
+  @IsIn(STATUS_PROBLEMA)
+  status?: (typeof STATUS_PROBLEMA)[number];
+
+  @Transform(({ value }) => (typeof value === 'string' && value.trim() === '' ? null : value))
+  @ValidateIf((_, value) => value !== undefined && value !== null)
+  @IsString()
+  causa_raiz?: string | null;
+
+  @Transform(({ value }) => (typeof value === 'string' && value.trim() === '' ? null : value))
+  @ValidateIf((_, value) => value !== undefined && value !== null)
+  @IsString()
+  solucao_contorno?: string | null;
+
+  @Transform(({ value }) => {
+    if (value === undefined) return undefined;
+    if (value === null || value === '') return null;
+    return Number(value);
+  })
+  @ValidateIf((_, value) => value !== undefined && value !== null)
+  @IsInt()
+  id_tecnico_atribuido?: number | null;
+
+  @Transform(({ value }) => (value === '' ? null : value))
+  @ValidateIf((_, value) => value !== undefined && value !== null)
+  @IsDateString()
+  data_resolucao?: string | null;
+}
+
+export class UpdateMudancaDto {
+  @IsOptional()
+  @IsIn(STATUS_MUDANCA)
+  status?: (typeof STATUS_MUDANCA)[number];
+
+  @IsOptional()
+  @IsDateString()
+  janela_inicio?: string | null;
+
+  @IsOptional()
+  @IsDateString()
+  janela_fim?: string | null;
 }
 
 export class CreateAprovacaoDto {
