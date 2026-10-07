@@ -47,3 +47,16 @@ export class CreateAtivoDto {
   data_aquisicao?: string;
 }
 
+export class CreateRelacionamentoDto {
+  @Type(() => Number)
+  @IsInt()
+  id_ativo_origem: number;
+
+  @Type(() => Number)
+  @IsInt()
+  id_ativo_destino: number;
+
+  @IsIn(['DEPENDE_DE'])
+  tipo_relacionamento: 'DEPENDE_DE';
+}
+

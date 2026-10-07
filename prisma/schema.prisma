@@ -590,6 +590,7 @@ model relacionamentos_ativos {
   origem              ativos_cmdb @relation("ativo_origem", fields: [id_cliente, id_ativo_origem], references: [id_cliente, id], onDelete: Cascade, onUpdate: NoAction, map: "fk_ra_origem")
 
   @@id([id_cliente, id_ativo_origem, id_ativo_destino], map: "pk_relacionamentos_ativos")
+  @@index([id_cliente, id_ativo_destino], map: "idx_rel_ativos_destino")
 }
 
 model requisicoes_aprovacao {
