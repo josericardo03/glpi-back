@@ -3,6 +3,7 @@ import type { AuthUser } from '../auth/auth.types.js';
 import { AuditService } from '../audit/audit.service.js';
 import { conflito } from '../common/conflito.js';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { StorageService, type ArquivoUpload } from '../storage/storage.service.js';
 import { CreateArtigoDto, CreateCategoriaKbDto, FeedbackArtigoDto, UpdateArtigoDto } from './dto/artigo.dto.js';
 import { CreateKbArtigoDto, CreateKbCategoriaDto, FeedbackKbDto } from './dto/kb.dto.js';
 
@@ -11,6 +12,7 @@ export class KbService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
+    private readonly storage: StorageService,
   ) {}
 
   async criarCategoria(user: AuthUser, dto: CreateCategoriaKbDto | CreateKbCategoriaDto, acao: string) {
@@ -97,17 +99,100 @@ export class KbService {
         id_cliente: user.id_cliente,
         ...(user.perfil === 'SOLICITANTE' ? { status: 'PUBLICADO' } : {}),
       },
-      include: { feedbacks_artigos_kb: { select: { util: true, id_usuario: true } } },
+      include: {
+        feedbacks_artigos_kb: { select: { util: true, id_usuario: true } },
+        anexos_artigos_kb: {
+          select: {
+            id: true,
+            nome_arquivo: true,
+            tipo_mime: true,
+            tamanho_bytes: true,
+            data_upload: true,
+          },
+          orderBy: { data_upload: 'asc' },
+        },
+      },
     });
     if (!artigo) throw new NotFoundException('Artigo não encontrado');
     const meu = artigo.feedbacks_artigos_kb.find((voto) => voto.id_usuario === user.id);
+    const anexos = artigo.anexos_artigos_kb.map((anexo) => ({
+      ...anexo,
+      tamanho_bytes: Number(anexo.tamanho_bytes),
+    }));
     return {
       ...artigo,
       votos_uteis: artigo.feedbacks_artigos_kb.filter((voto) => voto.util).length,
       votos_nao_uteis: artigo.feedbacks_artigos_kb.filter((voto) => !voto.util).length,
       meu_voto: meu ? meu.util : null,
+      imagens: anexos.filter((anexo) => anexo.tipo_mime.startsWith('image/')),
+      pdfs: anexos.filter((anexo) => anexo.tipo_mime === 'application/pdf'),
       feedbacks_artigos_kb: undefined,
+      anexos_artigos_kb: undefined,
     };
+  }
+
+  async anexarImagem(user: AuthUser, idArtigo: number, file: ArquivoUpload) {
+    await this.exigirArtigo(user, idArtigo, false);
+    const salvo = this.storage.validarImagem(user.id_cliente, idArtigo, file);
+    const anexo = await this.prisma.$transaction(async (tx) => {
+      const row = await tx.anexos_artigos_kb.create({
+        data: {
+          id_cliente: user.id_cliente,
+          id_artigo: idArtigo,
+          nome_arquivo: salvo.nome_arquivo,
+          caminho_storage: salvo.caminho_storage,
+          tipo_mime: salvo.tipo_mime,
+          tamanho_bytes: salvo.tamanho_bytes,
+          conteudo: new Uint8Array(salvo.conteudo),
+        },
+        select: {
+          id: true,
+          id_cliente: true,
+          id_artigo: true,
+          nome_arquivo: true,
+          caminho_storage: true,
+          tipo_mime: true,
+          tamanho_bytes: true,
+          data_upload: true,
+        },
+      });
+      await this.audit.record(tx, {
+        id_cliente: user.id_cliente,
+        acao: salvo.tipo_mime === 'application/pdf' ? 'ADD_KB_PDF' : 'ADD_KB_IMAGE',
+        tabela_afetada: 'anexos_artigos_kb',
+        registro_id: row.id,
+        valor_anterior: null,
+        valor_novo: {
+          id_artigo: idArtigo,
+          nome_arquivo: salvo.nome_arquivo,
+          tamanho_bytes: salvo.tamanho_bytes,
+        },
+      });
+      return row;
+    });
+    return { ...anexo, tamanho_bytes: Number(anexo.tamanho_bytes) };
+  }
+
+  async baixarImagem(user: AuthUser, idArtigo: number, idImagem: number) {
+    await this.exigirArtigo(user, idArtigo, user.perfil === 'SOLICITANTE');
+    const imagem = await this.prisma.anexos_artigos_kb.findFirst({
+      where: { id: idImagem, id_cliente: user.id_cliente, id_artigo: idArtigo },
+    });
+    if (!imagem?.conteudo) throw new NotFoundException('Arquivo não encontrado');
+    return imagem;
+  }
+
+  private async exigirArtigo(user: AuthUser, id: number, somentePublicado: boolean) {
+    const artigo = await this.prisma.artigos_kb.findFirst({
+      where: {
+        id,
+        id_cliente: user.id_cliente,
+        ...(somentePublicado ? { status: 'PUBLICADO' } : {}),
+      },
+      select: { id: true },
+    });
+    if (!artigo) throw new NotFoundException('Artigo não encontrado');
+    return artigo;
   }
 
   async atualizarArtigo(user: AuthUser, id: number, dto: UpdateArtigoDto) {

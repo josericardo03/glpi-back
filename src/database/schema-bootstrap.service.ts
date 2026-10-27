@@ -58,6 +58,13 @@ export class SchemaBootstrapService implements OnModuleInit {
         this.logger.log('Schema ITSM v7 criado no PostgreSQL.');
       }
 
+      const anexosArtigosPath = join(process.cwd(), 'prisma', 'sql', 'itsm-anexos-artigos-kb.sql');
+      if (existsSync(anexosArtigosPath)) {
+        const anexosArtigos = await readFile(anexosArtigosPath, 'utf8');
+        await client.query(anexosArtigos);
+        this.logger.log('Tabela anexos_artigos_kb aplicada.');
+      }
+
       const correcoesPath = join(process.cwd(), 'prisma', 'sql', 'itsm-correcoes.sql');
       if (existsSync(correcoesPath)) {
         const correcoes = await readFile(correcoesPath, 'utf8');

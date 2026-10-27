@@ -40,10 +40,28 @@ model artigos_kb {
   categorias_artigos_kb categorias_artigos_kb  @relation(fields: [id_cliente, id_categoria], references: [id_cliente, id], onUpdate: NoAction, map: "fk_art_kb_categoria")
   clientes              clientes               @relation(fields: [id_cliente], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_art_kb_cliente")
   feedbacks_artigos_kb  feedbacks_artigos_kb[]
+  anexos_artigos_kb     anexos_artigos_kb[]
 
   @@id([id_cliente, id], map: "pk_artigos_kb")
   @@index([id_cliente, id_categoria], map: "idx_artigos_kb_categoria")
   @@index([id_cliente, status], map: "idx_artigos_kb_status")
+}
+
+model anexos_artigos_kb {
+  id              Int        @default(autoincrement())
+  id_cliente      Int
+  id_artigo       Int
+  nome_arquivo    String     @db.VarChar(255)
+  caminho_storage String     @db.VarChar(512)
+  tipo_mime       String     @db.VarChar(100)
+  tamanho_bytes   BigInt
+  conteudo        Bytes?
+  data_upload     DateTime   @default(now()) @db.Timestamptz(6)
+  artigos_kb      artigos_kb @relation(fields: [id_cliente, id_artigo], references: [id_cliente, id], onDelete: Cascade, onUpdate: NoAction, map: "fk_anexo_artigo_kb_artigo")
+  clientes        clientes   @relation(fields: [id_cliente], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_anexo_artigo_kb_cliente")
+
+  @@id([id_cliente, id], map: "pk_anexos_artigos_kb")
+  @@index([id_cliente, id_artigo], map: "idx_anexos_artigos_kb_artigo")
 }
 
 model ativos_cmdb {
@@ -179,6 +197,7 @@ model clientes {
   cnpj                         String                         @unique(map: "uq_clientes_cnpj") @db.VarChar(18)
   status                       String                         @default("ATIVO") @db.VarChar(20)
   data_contratacao             DateTime                       @default(now()) @db.Timestamptz(6)
+  anexos_artigos_kb            anexos_artigos_kb[]
   anexos_chamados              anexos_chamados[]
   artigos_kb                   artigos_kb[]
   ativos_cmdb                  ativos_cmdb[]
