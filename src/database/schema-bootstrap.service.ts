@@ -35,12 +35,9 @@ export class SchemaBootstrapService implements OnModuleInit {
       return;
     }
 
-    const isLocal =
-      url.includes('localhost') || url.includes('127.0.0.1');
-
     const client = new pg.Client({
       connectionString: url,
-      ssl: isLocal ? false : { rejectUnauthorized: false },
+      ssl: sslDoPostgres(url),
       connectionTimeoutMillis: 8000,
     });
 
@@ -101,4 +98,13 @@ export class SchemaBootstrapService implements OnModuleInit {
 
     await this.seed.runIfNeeded();
   }
+}
+
+/** SSL só quando a URL ou o ambiente pedem. No Docker o Postgres interno não tem certificado. */
+function sslDoPostgres(url: string): false | { rejectUnauthorized: false } {
+  if (process.env.DATABASE_SSL === 'true') return { rejectUnauthorized: false };
+  if (/[?&]sslmode=(require|verify-full|verify-ca|no-verify)/.test(url)) {
+    return { rejectUnauthorized: false };
+  }
+  return false;
 }
