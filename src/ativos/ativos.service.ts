@@ -4,7 +4,7 @@ import type { AuthUser } from '../auth/auth.types.js';
 import { AuditService } from '../audit/audit.service.js';
 import { conflito } from '../common/conflito.js';
 import { PrismaService } from '../prisma/prisma.service.js';
-import { CreateAtivoDto, CreateRelacionamentoDto } from './dto/ativo.dto.js';
+import { CreateAtivoDto, CreateRelacionamentoDto, UpdateAtivoDto } from './dto/ativo.dto.js';
 
 @Injectable()
 export class AtivosService {
@@ -40,6 +40,48 @@ export class AtivosService {
           registro_id: row.id,
           valor_anterior: null,
           valor_novo: { codigo_patrimonio: row.codigo_patrimonio, nome: row.nome },
+        });
+        return row;
+      });
+    } catch (error) {
+      throw conflito(error, 'Patrimônio já cadastrado neste tenant');
+    }
+  }
+
+  async atualizar(user: AuthUser, id: number, dto: UpdateAtivoDto) {
+    const atual = await this.prisma.ativos_cmdb.findFirst({
+      where: { id, id_cliente: user.id_cliente },
+    });
+    if (!atual) throw new NotFoundException('Ativo não encontrado');
+    if (typeof dto.id_usuario_atribuido === 'number') {
+      await this.exigirUsuario(user.id_cliente, dto.id_usuario_atribuido);
+    }
+    try {
+      return await this.prisma.$transaction(async (tx) => {
+        const row = await tx.ativos_cmdb.update({
+          where: { id_cliente_id: { id_cliente: user.id_cliente, id } },
+          data: {
+            codigo_patrimonio: dto.codigo_patrimonio?.trim(),
+            nome: dto.nome?.trim(),
+            tipo_ativo: dto.tipo_ativo,
+            status: dto.status,
+            id_usuario_atribuido:
+              dto.id_usuario_atribuido === undefined ? undefined : dto.id_usuario_atribuido,
+            data_aquisicao:
+              dto.data_aquisicao === undefined
+                ? undefined
+                : dto.data_aquisicao === null
+                  ? null
+                  : new Date(dto.data_aquisicao),
+          },
+        });
+        await this.audit.record(tx, {
+          id_cliente: user.id_cliente,
+          acao: 'UPDATE_ATIVO',
+          tabela_afetada: 'ativos_cmdb',
+          registro_id: id,
+          valor_anterior: { nome: atual.nome, status: atual.status },
+          valor_novo: { nome: row.nome, status: row.status, tipo_ativo: row.tipo_ativo },
         });
         return row;
       });
@@ -178,6 +220,13 @@ export class AtivosService {
       ORDER BY m.nivel, a.nome
     `);
     return { ativo, afetados };
+  }
+
+  private async exigirUsuario(idCliente: number, id: number) {
+    const usuario = await this.prisma.usuarios.findFirst({
+      where: { id, id_cliente: idCliente },
+    });
+    if (!usuario) throw new NotFoundException('Usuário não encontrado');
   }
 
   private async exigirAtivos(idCliente: number, ids: number[]) {

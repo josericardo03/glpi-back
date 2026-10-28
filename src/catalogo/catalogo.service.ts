@@ -337,6 +337,9 @@ export class CatalogoService {
     if (row.status !== 'PENDENTE') {
       throw new ConflictException('Esta aprovação já foi decidida');
     }
+    if (row.id_aprovador !== user.id) {
+      throw new ForbiddenException('Só o aprovador designado pode decidir');
+    }
     if ((row.id_chamado == null) === (row.id_mudanca == null)) {
       throw new BadRequestException('Aprovação precisa apontar chamado ou mudança, nunca os dois');
     }
@@ -347,14 +350,18 @@ export class CatalogoService {
           status: dto.status,
           justificativa_aprovador: dto.justificativa_aprovador?.trim(),
           data_decisao: new Date(),
-          id_aprovador: user.id,
         },
       });
       if (saved.id_mudanca) {
-        await tx.mudancas.update({
-          where: { id_cliente_id: { id_cliente: user.id_cliente, id: saved.id_mudanca } },
-          data: { status: dto.status === 'APROVADO' ? 'AGENDADA' : 'CANCELADA' },
+        const mudanca = await tx.mudancas.findFirst({
+          where: { id: saved.id_mudanca, id_cliente: user.id_cliente },
         });
+        if (mudanca && ['RASCUNHO', 'AVALIACAO', 'APROVACAO'].includes(mudanca.status)) {
+          await tx.mudancas.update({
+            where: { id_cliente_id: { id_cliente: user.id_cliente, id: saved.id_mudanca } },
+            data: { status: dto.status === 'APROVADO' ? 'AGENDADA' : 'CANCELADA' },
+          });
+        }
       }
       await this.audit.record(tx, {
         id_cliente: user.id_cliente,

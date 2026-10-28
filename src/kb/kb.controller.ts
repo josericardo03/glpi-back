@@ -4,6 +4,7 @@ import {
   Body,
   Catch,
   Controller,
+  Delete,
   ExceptionFilter,
   Get,
   HttpCode,
@@ -78,6 +79,50 @@ export class ArtigosController {
     return this.kb.criarArtigo(user, dto, 'CREATE_KB_ARTICLE');
   }
 
+  @Post('artigos-kb/:id/anexos')
+  @Roles('TECNICO')
+  @HttpCode(HttpStatus.CREATED)
+  @UseFilters(ImagemFilter)
+  @UseInterceptors(FileInterceptor('arquivo', { limits: { fileSize: 20 * 1024 * 1024 } }))
+  anexarArquivo(
+    @CurrentUser() user: AuthUser,
+    @Param('id', ParseIntPipe) id: number,
+    @UploadedFile() file: ArquivoUpload,
+  ) {
+    if (!file) throw new BadRequestException('Envie o campo arquivo');
+    return this.kb.anexarImagem(user, id, file);
+  }
+
+  @Get('artigos-kb/:id/anexos/:anexoId')
+  @Roles('SOLICITANTE')
+  baixarArquivo(
+    @CurrentUser() user: AuthUser,
+    @Param('id', ParseIntPipe) id: number,
+    @Param('anexoId', ParseIntPipe) anexoId: number,
+  ) {
+    return this.baixarImagem(user, id, anexoId);
+  }
+
+  @Delete('artigos-kb/:id/anexos/:anexoId')
+  @Roles('TECNICO')
+  removerArquivo(
+    @CurrentUser() user: AuthUser,
+    @Param('id', ParseIntPipe) id: number,
+    @Param('anexoId', ParseIntPipe) anexoId: number,
+  ) {
+    return this.kb.removerAnexo(user, id, anexoId);
+  }
+
+  @Delete('artigos-kb/:id/imagens/:imagemId')
+  @Roles('TECNICO')
+  removerImagem(
+    @CurrentUser() user: AuthUser,
+    @Param('id', ParseIntPipe) id: number,
+    @Param('imagemId', ParseIntPipe) imagemId: number,
+  ) {
+    return this.kb.removerAnexo(user, id, imagemId);
+  }
+
   @Post('artigos-kb/:id/imagens')
   @Roles('TECNICO')
   @HttpCode(HttpStatus.CREATED)
@@ -134,6 +179,50 @@ export class KbController {
   @HttpCode(HttpStatus.CREATED)
   artigo(@CurrentUser() user: AuthUser, @Body() dto: CreateKbArtigoDto) {
     return this.kb.criarArtigo(user, dto, 'CREATE_KB_ARTICLE');
+  }
+
+  @Post('artigos/:id/anexos')
+  @Roles('TECNICO')
+  @HttpCode(HttpStatus.CREATED)
+  @UseFilters(ImagemFilter)
+  @UseInterceptors(FileInterceptor('arquivo', { limits: { fileSize: 20 * 1024 * 1024 } }))
+  anexarArquivo(
+    @CurrentUser() user: AuthUser,
+    @Param('id', ParseIntPipe) id: number,
+    @UploadedFile() file: ArquivoUpload,
+  ) {
+    if (!file) throw new BadRequestException('Envie o campo arquivo');
+    return this.kb.anexarImagem(user, id, file);
+  }
+
+  @Get('artigos/:id/anexos/:anexoId')
+  @Roles('SOLICITANTE')
+  baixarArquivo(
+    @CurrentUser() user: AuthUser,
+    @Param('id', ParseIntPipe) id: number,
+    @Param('anexoId', ParseIntPipe) anexoId: number,
+  ) {
+    return this.baixarImagem(user, id, anexoId);
+  }
+
+  @Delete('artigos/:id/anexos/:anexoId')
+  @Roles('TECNICO')
+  removerArquivo(
+    @CurrentUser() user: AuthUser,
+    @Param('id', ParseIntPipe) id: number,
+    @Param('anexoId', ParseIntPipe) anexoId: number,
+  ) {
+    return this.kb.removerAnexo(user, id, anexoId);
+  }
+
+  @Delete('artigos/:id/imagens/:imagemId')
+  @Roles('TECNICO')
+  removerImagem(
+    @CurrentUser() user: AuthUser,
+    @Param('id', ParseIntPipe) id: number,
+    @Param('imagemId', ParseIntPipe) imagemId: number,
+  ) {
+    return this.kb.removerAnexo(user, id, imagemId);
   }
 
   @Post('artigos/:id/imagens')

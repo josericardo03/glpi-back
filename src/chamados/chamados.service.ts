@@ -12,6 +12,7 @@ import { PrismaService } from '../prisma/prisma.service.js';
 import { SlaService } from '../sla/sla.service.js';
 import { StorageService, type ArquivoUpload } from '../storage/storage.service.js';
 import {
+  AtribuirChamadoDto,
   AtivoChamadoDto,
   ComentarioDto,
   CreateChamadoDto,
@@ -107,6 +108,40 @@ export class ChamadosService {
       data_previsao_resolucao: criado.data_previsao_resolucao,
       sla_vencido: criado.sla_vencido,
     };
+  }
+
+  async atribuir(user: AuthUser, id: number, dto: AtribuirChamadoDto) {
+    const chamado = await this.obter(user, id, false);
+    if (dto.id_tecnico_atribuido === undefined) {
+      throw new BadRequestException('Informe id_tecnico_atribuido');
+    }
+    if (typeof dto.id_tecnico_atribuido === 'number') {
+      const tecnico = await this.prisma.usuarios.findFirst({
+        where: {
+          id: dto.id_tecnico_atribuido,
+          id_cliente: user.id_cliente,
+          status: 'ATIVO',
+          perfil: { in: ['TECNICO', 'GESTOR', 'ADMIN'] },
+        },
+      });
+      if (!tecnico) throw new NotFoundException('Técnico não encontrado');
+    }
+    return this.prisma.$transaction(async (tx) => {
+      const row = await tx.chamados.update({
+        where: { id_cliente_id: { id_cliente: user.id_cliente, id } },
+        data: { id_tecnico_atribuido: dto.id_tecnico_atribuido },
+        select: { id: true, id_cliente: true, id_tecnico_atribuido: true, status: true },
+      });
+      await this.audit.record(tx, {
+        id_cliente: user.id_cliente,
+        acao: 'ASSIGN_CHAMADO',
+        tabela_afetada: 'chamados',
+        registro_id: id,
+        valor_anterior: { id_tecnico_atribuido: chamado.id_tecnico_atribuido },
+        valor_novo: { id_tecnico_atribuido: row.id_tecnico_atribuido },
+      });
+      return row;
+    });
   }
 
   async mudarStatus(user: AuthUser, id: number, dto: StatusChamadoDto) {

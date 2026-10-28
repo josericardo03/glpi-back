@@ -8,10 +8,18 @@ import {
   type Slot,
 } from './business-time.js';
 
-export function escolherPolitica<T extends { id: number; tipo_chamado_alvo: string }>(
-  politicas: T[],
-  tipo: string,
-): T | undefined {
+export function escolherPolitica<
+  T extends { id: number; tipo_chamado_alvo: string; prioridade_alvo: string },
+>(politicas: T[], tipo: string, prioridade: string): T | undefined {
+  const daPrioridade = politicas.filter((politica) => politica.prioridade_alvo === prioridade);
+  return (
+    preferirTipo(daPrioridade, tipo) ??
+    preferirTipo(politicas, tipo) ??
+    [...politicas].sort((a, b) => a.id - b.id)[0]
+  );
+}
+
+function preferirTipo<T extends { id: number; tipo_chamado_alvo: string }>(politicas: T[], tipo: string) {
   const ordenadas = [...politicas].sort((a, b) => a.id - b.id);
   return (
     ordenadas.find((politica) => politica.tipo_chamado_alvo === tipo) ??
@@ -45,17 +53,12 @@ export class SlaService implements OnModuleInit, OnModuleDestroy {
     aPartirDe = new Date(),
   ) {
     const politicas = await this.prisma.politicas_sla.findMany({
-      where: {
-        id_cliente: idCliente,
-        prioridade_alvo: prioridade,
-        tipo_chamado_alvo: { in: [tipo, 'AMBOS'] },
-        status: 'ATIVO',
-      },
+      where: { id_cliente: idCliente, status: 'ATIVO' },
       include: {
         horarios_comerciais: { include: { intervalos_horarios: true } },
       },
     });
-    const politica = escolherPolitica(politicas, tipo);
+    const politica = escolherPolitica(politicas, tipo, prioridade);
     if (!politica) {
       throw new UnprocessableEntityException(
         'Não há política de SLA ativa para esta prioridade e tipo',

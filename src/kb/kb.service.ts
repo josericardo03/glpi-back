@@ -182,6 +182,29 @@ export class KbService {
     return imagem;
   }
 
+  async removerAnexo(user: AuthUser, idArtigo: number, idAnexo: number) {
+    await this.exigirArtigo(user, idArtigo, false);
+    const anexo = await this.prisma.anexos_artigos_kb.findFirst({
+      where: { id: idAnexo, id_cliente: user.id_cliente, id_artigo: idArtigo },
+      select: { id: true, nome_arquivo: true, tipo_mime: true },
+    });
+    if (!anexo) throw new NotFoundException('Arquivo não encontrado');
+    await this.prisma.$transaction(async (tx) => {
+      await tx.anexos_artigos_kb.deleteMany({
+        where: { id: idAnexo, id_cliente: user.id_cliente, id_artigo: idArtigo },
+      });
+      await this.audit.record(tx, {
+        id_cliente: user.id_cliente,
+        acao: 'DELETE_KB_ATTACHMENT',
+        tabela_afetada: 'anexos_artigos_kb',
+        registro_id: idAnexo,
+        valor_anterior: { id_artigo: idArtigo, nome_arquivo: anexo.nome_arquivo, tipo_mime: anexo.tipo_mime },
+        valor_novo: null,
+      });
+    });
+    return { removido: true };
+  }
+
   private async exigirArtigo(user: AuthUser, id: number, somentePublicado: boolean) {
     const artigo = await this.prisma.artigos_kb.findFirst({
       where: {

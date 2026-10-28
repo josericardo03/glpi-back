@@ -3,6 +3,7 @@ import {
   Controller,
   Delete,
   Get,
+  Patch,
   HttpCode,
   HttpStatus,
   Param,
@@ -15,7 +16,7 @@ import type { Response } from 'express';
 import { CurrentUser } from '../auth/current-user.decorator.js';
 import { Roles } from '../auth/roles.js';
 import type { AuthUser } from '../auth/auth.types.js';
-import { CreateAtivoDto, CreateRelacionamentoDto } from './dto/ativo.dto.js';
+import { CreateAtivoDto, CreateRelacionamentoDto, UpdateAtivoDto } from './dto/ativo.dto.js';
 import { AtivosService } from './ativos.service.js';
 
 @Controller()
@@ -27,6 +28,16 @@ export class AtivosController {
   @HttpCode(HttpStatus.CREATED)
   criar(@CurrentUser() user: AuthUser, @Body() dto: CreateAtivoDto) {
     return this.ativos.criar(user, dto);
+  }
+
+  @Patch('ativos/:id')
+  @Roles('TECNICO')
+  atualizar(
+    @CurrentUser() user: AuthUser,
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: UpdateAtivoDto,
+  ) {
+    return this.ativos.atualizar(user, id, dto);
   }
 
   @Post('ativos/relacionamentos')

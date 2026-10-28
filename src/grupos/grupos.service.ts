@@ -3,7 +3,7 @@ import type { AuthUser } from '../auth/auth.types.js';
 import { AuditService } from '../audit/audit.service.js';
 import { conflito } from '../common/conflito.js';
 import { PrismaService } from '../prisma/prisma.service.js';
-import { CreateGrupoDto, MembroGrupoDto } from './dto/grupo.dto.js';
+import { CreateGrupoDto, MembroGrupoDto, UpdateGrupoDto } from './dto/grupo.dto.js';
 
 @Injectable()
 export class GruposService {
@@ -29,6 +29,37 @@ export class GruposService {
           registro_id: row.id,
           valor_anterior: null,
           valor_novo: { nome: row.nome },
+        });
+        return row;
+      });
+    } catch (error) {
+      throw conflito(error, 'Já existe um grupo com esse nome');
+    }
+  }
+
+  async atualizar(user: AuthUser, id: number, dto: UpdateGrupoDto) {
+    const atual = await this.prisma.grupos_suporte.findFirst({
+      where: { id, id_cliente: user.id_cliente },
+    });
+    if (!atual) throw new NotFoundException('Grupo não encontrado');
+    try {
+      return await this.prisma.$transaction(async (tx) => {
+        const row = await tx.grupos_suporte.update({
+          where: { id_cliente_id: { id_cliente: user.id_cliente, id } },
+          data: {
+            nome: dto.nome?.trim(),
+            status: dto.status,
+            descricao:
+              dto.descricao === undefined ? undefined : dto.descricao === null ? null : dto.descricao.trim(),
+          },
+        });
+        await this.audit.record(tx, {
+          id_cliente: user.id_cliente,
+          acao: 'UPDATE_SUPPORT_GROUP',
+          tabela_afetada: 'grupos_suporte',
+          registro_id: id,
+          valor_anterior: { nome: atual.nome, status: atual.status },
+          valor_novo: { nome: row.nome, status: row.status },
         });
         return row;
       });

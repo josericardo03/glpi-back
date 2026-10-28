@@ -1,4 +1,4 @@
-import { Type } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 import {
   IsBoolean,
   IsDateString,
@@ -9,6 +9,7 @@ import {
   IsString,
   MaxLength,
   MinLength,
+  ValidateIf,
 } from 'class-validator';
 
 const PERFIS = ['ADMIN', 'GESTOR', 'TECNICO', 'SOLICITANTE'] as const;
@@ -28,6 +29,23 @@ export class CreateGrupoDto {
   @IsOptional()
   @IsString()
   descricao?: string;
+}
+
+export class UpdateGrupoDto {
+  @IsOptional()
+  @IsString()
+  @MinLength(2)
+  @MaxLength(100)
+  nome?: string;
+
+  @Transform(({ value }) => (typeof value === 'string' && value.trim() === '' ? null : value))
+  @ValidateIf((_, value) => value !== undefined && value !== null)
+  @IsString()
+  descricao?: string | null;
+
+  @IsOptional()
+  @IsIn(STATUS_SIMPLES)
+  status?: (typeof STATUS_SIMPLES)[number];
 }
 
 

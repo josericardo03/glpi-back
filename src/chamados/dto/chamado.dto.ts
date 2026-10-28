@@ -1,4 +1,4 @@
-import { Type } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 import {
   IsDateString,
   IsIn,
@@ -9,6 +9,7 @@ import {
   MaxLength,
   Min,
   MinLength,
+  ValidateIf,
 } from 'class-validator';
 
 export const TIPOS_CHAMADO = ['INCIDENTE', 'REQUISICAO'] as const;
@@ -58,6 +59,17 @@ export class CreateChamadoDto {
   @Type(() => Number)
   @IsInt()
   id_ativo_afetado?: number;
+}
+
+export class AtribuirChamadoDto {
+  @Transform(({ value }) => {
+    if (value === undefined) return undefined;
+    if (value === null || value === '') return null;
+    return Number(value);
+  })
+  @ValidateIf((_, value) => value !== undefined && value !== null)
+  @IsInt()
+  id_tecnico_atribuido?: number | null;
 }
 
 export class StatusChamadoDto {

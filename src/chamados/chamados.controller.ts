@@ -27,6 +27,7 @@ import {
   AnexoMetaDto,
   AtivoChamadoDto,
   ComentarioDto,
+  AtribuirChamadoDto,
   CreateChamadoDto,
   PausaDto,
   StatusChamadoDto,
@@ -54,6 +55,16 @@ export class ChamadosController {
   @HttpCode(HttpStatus.CREATED)
   abrir(@CurrentUser() user: AuthUser, @Body() dto: CreateChamadoDto) {
     return this.chamados.abrir(user, dto);
+  }
+
+  @Patch(':id')
+  @Roles('TECNICO')
+  atribuir(
+    @CurrentUser() user: AuthUser,
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: AtribuirChamadoDto,
+  ) {
+    return this.chamados.atribuir(user, id, dto);
   }
 
   @Patch(':id/status')

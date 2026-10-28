@@ -1,4 +1,4 @@
-import { Type } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 import {
   IsBoolean,
   IsDateString,
@@ -9,6 +9,7 @@ import {
   IsString,
   MaxLength,
   MinLength,
+  ValidateIf,
 } from 'class-validator';
 
 const PERFIS = ['ADMIN', 'GESTOR', 'TECNICO', 'SOLICITANTE'] as const;
@@ -45,6 +46,42 @@ export class CreateAtivoDto {
   @IsOptional()
   @IsDateString()
   data_aquisicao?: string;
+}
+
+export class UpdateAtivoDto {
+  @IsOptional()
+  @IsString()
+  @MinLength(1)
+  @MaxLength(50)
+  codigo_patrimonio?: string;
+
+  @IsOptional()
+  @IsString()
+  @MinLength(2)
+  @MaxLength(150)
+  nome?: string;
+
+  @IsOptional()
+  @IsIn(TIPO_ATIVO)
+  tipo_ativo?: (typeof TIPO_ATIVO)[number];
+
+  @Transform(({ value }) => {
+    if (value === undefined) return undefined;
+    if (value === null || value === '') return null;
+    return Number(value);
+  })
+  @ValidateIf((_, value) => value !== undefined && value !== null)
+  @IsInt()
+  id_usuario_atribuido?: number | null;
+
+  @IsOptional()
+  @IsIn(STATUS_ATIVO)
+  status?: (typeof STATUS_ATIVO)[number];
+
+  @Transform(({ value }) => (value === '' ? null : value))
+  @ValidateIf((_, value) => value !== undefined && value !== null)
+  @IsDateString()
+  data_aquisicao?: string | null;
 }
 
 export class CreateRelacionamentoDto {
