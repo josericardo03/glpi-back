@@ -137,6 +137,7 @@ export class AtivosService {
           : `Essa dependência já está cadastrada no mapa "${repetido.mapa.nome}"`,
       );
     }
+    await this.recusarCiclo(user.id_cliente, idMapa, dto.id_ativo_origem, dto.id_ativo_destino);
     try {
       return await this.prisma.$transaction(async (tx) => {
         const row = await tx.relacionamentos_ativos.create({
@@ -375,6 +376,35 @@ export class AtivosService {
         tecnico: { id: user.id, nome: user.nome },
       };
     });
+  }
+
+  /**
+   * `origem` passa a depender de `destino`. Se `destino` já depende (direta ou indiretamente) de `origem`
+   * dentro do mesmo mapa, a nova ligação fecharia um ciclo e o desenho/impacto perderiam o sentido.
+   */
+  private async recusarCiclo(idCliente: number, idMapa: number, origem: number, destino: number) {
+    const [achou] = await this.prisma.$queryRaw<{ existe: boolean }[]>(Prisma.sql`
+      WITH RECURSIVE caminho AS (
+        SELECT r.id_ativo_destino AS id, ARRAY[r.id_ativo_origem, r.id_ativo_destino] AS visitados
+        FROM relacionamentos_ativos r
+        WHERE r.id_cliente = ${idCliente} AND r.id_mapa = ${idMapa}
+          AND r.tipo_relacionamento = 'DEPENDE_DE' AND r.id_ativo_origem = ${destino}
+        UNION ALL
+        SELECT r.id_ativo_destino, c.visitados || r.id_ativo_destino
+        FROM relacionamentos_ativos r
+        JOIN caminho c ON c.id = r.id_ativo_origem
+        WHERE r.id_cliente = ${idCliente} AND r.id_mapa = ${idMapa}
+          AND r.tipo_relacionamento = 'DEPENDE_DE'
+          AND NOT (r.id_ativo_destino = ANY (c.visitados))
+          AND cardinality(c.visitados) < 50
+      )
+      SELECT EXISTS (SELECT 1 FROM caminho WHERE id = ${origem}) AS existe
+    `);
+    if (achou?.existe) {
+      throw new ConflictException(
+        'Essa dependência fecharia um ciclo: o destino já depende da origem, direta ou indiretamente, neste mapa',
+      );
+    }
   }
 
   private async exigirUsuario(idCliente: number, id: number) {

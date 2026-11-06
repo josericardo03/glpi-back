@@ -275,6 +275,12 @@ async function main() {
   confere('dependência já existente em outro mapa é 409 e diz qual', repetidaOutroMapa.status === 409 && String(repetidaOutroMapa.dados?.message).includes('Principal'), repetidaOutroMapa.dados);
   confere('mapa inexistente é 404', (await api(T, 'POST', '/ativos/relacionamentos', { id_ativo_origem: ativo3.dados.id, id_ativo_destino: ativo2.dados.id, id_mapa: 999999, tipo_relacionamento: 'DEPENDE_DE' })).status === 404);
   const soRede = await api(T, 'GET', `/ativos/relacionamentos?id_mapa=${mapaRede.dados.id}`);
+  const cicloDireto = await api(T, 'POST', '/ativos/relacionamentos', { id_ativo_origem: ativo.dados.id, id_ativo_destino: ativo3.dados.id, id_mapa: mapaRede.dados.id, tipo_relacionamento: 'DEPENDE_DE' });
+  confere('dependência que fecha ciclo direto é 409', cicloDireto.status === 409 && String(cicloDireto.dados?.message).includes('ciclo'), cicloDireto.dados);
+  const ativo4 = await api(T, 'POST', '/ativos', { codigo_patrimonio: `PAT4-${sufixo}`, nome: 'Provedor', tipo_ativo: 'OUTRO' });
+  confere('cadeia ativo4 <- ativo (mesmo mapa)', (await api(T, 'POST', '/ativos/relacionamentos', { id_ativo_origem: ativo.dados.id, id_ativo_destino: ativo4.dados.id, id_mapa: mapaRede.dados.id, tipo_relacionamento: 'DEPENDE_DE' })).status === 201);
+  const cicloIndireto = await api(T, 'POST', '/ativos/relacionamentos', { id_ativo_origem: ativo4.dados.id, id_ativo_destino: ativo3.dados.id, id_mapa: mapaRede.dados.id, tipo_relacionamento: 'DEPENDE_DE' });
+  confere('dependência que fecha ciclo indireto é 409', cicloIndireto.status === 409, cicloIndireto.dados);
   confere('lista de dependências filtra por mapa', soRede.status === 200 && soRede.dados.length === 1 && soRede.headers.get('x-total-count') === '1' && soRede.dados[0].origem.id === ativo3.dados.id, soRede.dados);
   confere('filtro de mapa inválido é 400', (await api(T, 'GET', '/ativos/relacionamentos?id_mapa=abc')).status === 400);
   const impRede = await api(T, 'GET', `/ativos/${ativo.dados.id}/impacto?id_mapa=${mapaRede.dados.id}`);
@@ -282,12 +288,12 @@ async function main() {
   const impTodos = await api(T, 'GET', `/ativos/${ativo.dados.id}/impacto`);
   confere('impacto por mapa só considera as dependências do mapa', impRede.dados?.afetados?.length === 1 && impRede.dados.afetados[0].id === ativo3.dados.id && impPadrao.dados?.afetados?.length === 1 && impPadrao.dados.afetados[0].id === ativo2.dados.id && impTodos.dados?.afetados?.length === 2, { impRede: impRede.dados, impPadrao: impPadrao.dados, impTodos: impTodos.dados });
   const renomeado = await api(T, 'PATCH', `/mapas-software/${mapaRede.dados.id}`, { nome: `Rede e firewall ${sufixo}`, descricao: '' });
-  confere('renomeia mapa e limpa a descrição', renomeado.status === 200 && renomeado.dados.nome.startsWith('Rede e firewall') && renomeado.dados.descricao === null && renomeado.dados.total_ligacoes === 1, renomeado.dados);
+  confere('renomeia mapa e limpa a descrição', renomeado.status === 200 && renomeado.dados.nome.startsWith('Rede e firewall') && renomeado.dados.descricao === null && renomeado.dados.total_ligacoes === 2, renomeado.dados);
   confere('renomear para um nome já usado é 409', (await api(T, 'PATCH', `/mapas-software/${mapaRede.dados.id}`, { nome: 'principal' })).status === 409);
   confere('solicitante não vê os mapas', (await api(S, 'GET', '/mapas-software')).status === 403);
   confere('apagar mapa com dependências exige confirmação (409)', (await api(T, 'DELETE', `/mapas-software/${mapaRede.dados.id}`)).status === 409);
   const apagado = await api(T, 'DELETE', `/mapas-software/${mapaRede.dados.id}?com_ligacoes=true`);
-  confere('apaga o mapa junto com as dependências', apagado.status === 200 && apagado.dados.ligacoes_removidas === 1, apagado.dados);
+  confere('apaga o mapa junto com as dependências', apagado.status === 200 && apagado.dados.ligacoes_removidas === 2, apagado.dados);
   confere('depois de apagar, o impacto geral volta a 1', (await api(T, 'GET', `/ativos/${ativo.dados.id}/impacto`)).dados?.afetados?.length === 1);
   confere('apagar mapa que não existe é 404', (await api(T, 'DELETE', `/mapas-software/${mapaRede.dados.id}`)).status === 404);
 
