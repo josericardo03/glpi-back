@@ -370,6 +370,24 @@ async function main() {
   confere('branding com logo javascript: é 400', (await api(A, 'POST', '/admin/branding', { logo_url: 'javascript:alert(1)' })).status === 400);
   confere('branding válido', (await api(A, 'POST', '/admin/branding', { nome_portal: 'Portal de Teste', cor_primaria: '#112233' })).status < 300);
   confere('tenant atual', (await api(S, 'GET', '/tenants/current')).dados?.branding?.nome_portal === 'Portal de Teste');
+
+  // logotipo enviado como arquivo
+  confere('solicitante não envia logotipo (403)', (await api(S, 'POST', '/branding/logo', arquivo('logo.png', PNG, 'image/png'))).status === 403);
+  confere('logotipo que não é imagem é 400', (await api(A, 'POST', '/branding/logo', arquivo('logo.png', Buffer.from('MZ programa'), 'image/png'))).status === 400);
+  confere('SVG com script é 400', (await api(A, 'POST', '/branding/logo', arquivo('logo.svg', Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>'), 'image/svg+xml'))).status === 400);
+  confere('SVG com evento é 400', (await api(A, 'POST', '/branding/logo', arquivo('logo.svg', Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" onload="x()"></svg>'), 'image/svg+xml'))).status === 400);
+  confere('logotipo acima de 1 MB é 413', (await api(A, 'POST', '/branding/logo', arquivo('grande.png', Buffer.concat([PNG, Buffer.alloc(1024 * 1024)]), 'image/png'))).status === 413);
+  const svgOk = await api(A, 'POST', '/branding/logo', arquivo('logo.svg', Buffer.from('<?xml version="1.0"?><svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><rect width="10" height="10" fill="#0056B3"/></svg>'), 'image/svg+xml'));
+  confere('SVG simples é aceito', svgOk.status === 201 && svgOk.dados?.tipo_mime === 'image/svg+xml', svgOk.dados);
+  const upLogo = await api(A, 'POST', '/branding/logo', arquivo('logo.png', PNG, 'image/png'));
+  confere('envia logotipo PNG', upLogo.status === 201 && upLogo.dados?.logo_url?.startsWith('/api/branding/logo/') && upLogo.dados.tipo_mime === 'image/png', upLogo.dados);
+  const caminhoLogo = String(upLogo.dados?.logo_url).replace('/api', '');
+  const logoPublico = await api(null, 'GET', caminhoLogo);
+  confere('logotipo é servido sem login, com tipo, cache e proteção certos', logoPublico.status === 200 && logoPublico.headers.get('content-type') === 'image/png' && String(logoPublico.headers.get('cache-control')).includes('immutable') && String(logoPublico.headers.get('content-security-policy')).includes('sandbox') && Buffer.compare(logoPublico.dados, PNG) === 0, { status: logoPublico.status, tipo: logoPublico.headers.get('content-type') });
+  confere('enviar não publica: o tenant ainda não aponta para o arquivo', !String((await api(S, 'GET', '/tenants/current')).dados?.branding?.logo_url ?? '').startsWith('/api/branding/logo/'));
+  confere('publica o logotipo enviado', (await api(A, 'POST', '/admin/branding', { logo_url: upLogo.dados.logo_url })).status < 300);
+  confere('o tenant passa a usar o logotipo enviado', String((await api(S, 'GET', '/tenants/current')).dados?.branding?.logo_url).startsWith('/api/branding/logo/'));
+  confere('trocar para uma URL externa apaga o arquivo guardado', (await api(A, 'POST', '/admin/branding', { logo_url: 'https://exemplo.com/logo.png' })).status < 300 && (await api(null, 'GET', caminhoLogo)).status === 404);
   const aud = await api(A, 'GET', '/admin/auditoria?limite=200');
   const acoes = new Set(aud.dados.map((l) => l.acao));
   confere('auditoria registra reabertura', acoes.has('REOPEN_CHAMADO'), [...acoes].slice(0, 20));

@@ -219,6 +219,7 @@ model clientes {
   horarios_comerciais          horarios_comerciais[]
   integracoes                  integracoes[]
   intervalos_horarios          intervalos_horarios[]
+  logos_branding               logos_branding?
   logs_auditoria               logs_auditoria[]
   membros_grupos               membros_grupos[]
   mudancas                     mudancas[]
@@ -263,6 +264,15 @@ model configuracoes_branding {
   clientes       clientes @relation(fields: [id_cliente], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_branding_cliente")
 
   @@id([id_cliente, id], map: "pk_branding")
+}
+
+model logos_branding {
+  id_cliente       Int      @id(map: "pk_logos_branding")
+  tipo_mime        String   @db.VarChar(50)
+  conteudo         Bytes
+  tamanho_bytes    Int
+  data_atualizacao DateTime @default(now()) @db.Timestamptz(6)
+  clientes         clientes @relation(fields: [id_cliente], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_logo_cliente")
 }
 
 model departamentos {

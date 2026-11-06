@@ -12,6 +12,7 @@ import { inicioCuiaba, somarDias } from '../api/chamado-consulta.js';
 import type { AuthUser } from '../auth/auth.types.js';
 import { exigirSenhaForte } from '../auth/senha.js';
 import { AuditService } from '../audit/audit.service.js';
+import { limparLogoSeExterno } from '../branding/branding.service.js';
 import { EmailService } from '../integracoes/email.service.js';
 import { destinoPermitido } from '../integracoes/rede.js';
 import { WebhookService } from '../integracoes/webhook.service.js';
@@ -453,6 +454,7 @@ export class AdminService {
         : await tx.configuracoes_branding.create({
             data: { id_cliente: user.id_cliente, ...dto },
           });
+      await limparLogoSeExterno(tx, user.id_cliente, salvo.logo_url);
       await this.audit.record(tx, {
         id_cliente: user.id_cliente,
         acao: 'UPSERT_BRANDING',

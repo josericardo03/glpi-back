@@ -26,6 +26,7 @@ export const MIGRACOES: Migracao[] = [
   { nome: '006_sla_alertas', arquivo: 'itsm-sla-alertas.sql' },
   { nome: '007_autenticacao', arquivo: 'itsm-autenticacao.sql' },
   { nome: '008_mapas_software', arquivo: 'itsm-mapas-software.sql' },
+  { nome: '009_logo_branding', arquivo: 'itsm-logo-branding.sql' },
 ];
 
 /** Identificador do lock que impede duas instâncias de migrarem ao mesmo tempo. */
