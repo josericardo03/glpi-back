@@ -1,7 +1,5 @@
 import { Type } from 'class-transformer';
 import {
-  IsBoolean,
-  IsDateString,
   IsEmail,
   IsIn,
   IsInt,
@@ -13,11 +11,6 @@ import {
 
 const PERFIS = ['ADMIN', 'GESTOR', 'TECNICO', 'SOLICITANTE'] as const;
 const STATUS_USUARIO = ['ATIVO', 'DESATIVADO', 'PENDENTE_CONFIRMACAO'] as const;
-const STATUS_SIMPLES = ['ATIVO', 'INATIVO'] as const;
-const TIPO_CAT = ['INCIDENTE', 'REQUISICAO', 'AMBOS'] as const;
-const TIPO_ATIVO = ['NOTEBOOK', 'SERVIDOR', 'LICENCA_SOFTWARE', 'RUST_ROUTER', 'SWITCH', 'OUTRO'] as const;
-const STATUS_ATIVO = ['ATIVO', 'EM_MANUTENCAO', 'DESATIVADO', 'EM_ESTOQUE'] as const;
-const STATUS_ARTIGO = ['RASCUNHO', 'REVISAO', 'PUBLICADO', 'ARQUIVADO'] as const;
 
 export class CreateUsuarioDto {
   @IsString()
@@ -75,7 +68,7 @@ export class UpdateUsuarioDto {
   @IsOptional()
   @Type(() => Number)
   @IsInt()
-  id_departamento?: number;
+  id_departamento?: number | null;
 
   @IsOptional()
   @IsString()

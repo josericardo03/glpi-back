@@ -259,7 +259,8 @@ export class KbService {
     if (!artigo) throw new NotFoundException('Artigo publicado não encontrado');
     return this.prisma.artigos_kb.update({
       where: { id_cliente_id: { id_cliente: user.id_cliente, id } },
-      data: { visualizacoes: { increment: 1 }, data_atualizacao: new Date() },
+      // Só o contador muda: visualizar não é editar, e `data_atualizacao` ordena a listagem.
+      data: { visualizacoes: { increment: 1 } },
       select: { id: true, id_cliente: true, visualizacoes: true },
     });
   }

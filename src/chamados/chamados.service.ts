@@ -453,6 +453,9 @@ export class ChamadosService {
         where: { id: idComentario, id_cliente: user.id_cliente, id_chamado: id },
       });
       if (!comentario) throw new NotFoundException('Comentário não encontrado neste chamado');
+      if (user.perfil === 'SOLICITANTE' && comentario.tipo_visibilidade === 'INTERNO') {
+        throw new ForbiddenException('Nota interna restrita à equipe técnica');
+      }
     }
     const salvo = this.storage.validar(user.id_cliente, id, file);
     try {
@@ -504,6 +507,14 @@ export class ChamadosService {
       where: { id: anexoId, id_cliente: user.id_cliente, id_chamado: id },
     });
     if (!anexo?.conteudo) throw new NotFoundException('Anexo não encontrado');
+    if (user.perfil === 'SOLICITANTE' && anexo.id_comentario != null) {
+      // Anexo de nota interna não pode ser baixado pelo solicitante (a listagem já o oculta).
+      const comentario = await this.prisma.comentarios_chamados.findFirst({
+        where: { id: anexo.id_comentario, id_cliente: user.id_cliente, id_chamado: id },
+        select: { tipo_visibilidade: true },
+      });
+      if (comentario?.tipo_visibilidade === 'INTERNO') throw new NotFoundException('Anexo não encontrado');
+    }
     return anexo;
   }
 
@@ -514,22 +525,24 @@ export class ChamadosService {
     });
     if (!ativo) throw new NotFoundException('Ativo não encontrado');
     try {
-      const link = await this.prisma.chamados_ativos.create({
-        data: {
+      return await this.prisma.$transaction(async (tx) => {
+        const link = await tx.chamados_ativos.create({
+          data: {
+            id_cliente: user.id_cliente,
+            id_chamado: id,
+            id_ativo: dto.id_ativo,
+          },
+        });
+        await this.audit.record(tx, {
           id_cliente: user.id_cliente,
-          id_chamado: id,
-          id_ativo: dto.id_ativo,
-        },
+          acao: 'LINK_ATIVO',
+          tabela_afetada: 'chamados_ativos',
+          registro_id: id,
+          valor_anterior: null,
+          valor_novo: { id_chamado: id, id_ativo: dto.id_ativo },
+        });
+        return link;
       });
-      await this.audit.record(this.prisma, {
-        id_cliente: user.id_cliente,
-        acao: 'LINK_ATIVO',
-        tabela_afetada: 'chamados_ativos',
-        registro_id: id,
-        valor_anterior: null,
-        valor_novo: { id_chamado: id, id_ativo: dto.id_ativo },
-      });
-      return link;
     } catch (error) {
       throw this.traduzir(error);
     }

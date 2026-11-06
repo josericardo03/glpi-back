@@ -6,9 +6,14 @@ const CAMPOS_SECRETOS = new Set([
   'secret',
   'token',
   'api_key',
+  'apikey',
   'bind_password',
   'client_secret',
+  'authorization',
 ]);
+
+/** Compara sem diferenciar maiúsculas/minúsculas e sem hífen (`API-Key`, `apiKey`, `Token`). */
+const ehSecreto = (nome: string) => CAMPOS_SECRETOS.has(nome.toLowerCase().replace(/-/g, '_'));
 
 function chave(secret: string) {
   return scryptSync(secret, 'itsm-integracoes', 32);
@@ -21,7 +26,7 @@ export function criptografarConfig(
   const key = chave(secret);
   const saida: Record<string, unknown> = {};
   for (const [nome, valor] of Object.entries(config)) {
-    if (CAMPOS_SECRETOS.has(nome) && typeof valor === 'string' && !valor.startsWith('enc:v1:')) {
+    if (ehSecreto(nome) && typeof valor === 'string' && !valor.startsWith('enc:v1:')) {
       const iv = randomBytes(12);
       const cipher = createCipheriv('aes-256-gcm', key, iv);
       const cifrado = Buffer.concat([cipher.update(valor, 'utf8'), cipher.final()]);
@@ -38,7 +43,7 @@ export function mascararConfig(config: Record<string, unknown>) {
   const saida: Record<string, unknown> = {};
   for (const [nome, valor] of Object.entries(config)) {
     saida[nome] =
-      CAMPOS_SECRETOS.has(nome) || (typeof valor === 'string' && valor.startsWith('enc:v1:'))
+      ehSecreto(nome) || (typeof valor === 'string' && valor.startsWith('enc:v1:'))
         ? '[criptografado]'
         : valor;
   }

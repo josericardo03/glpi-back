@@ -7,13 +7,30 @@ export const EXPEDIENTE_PADRAO: Slot[] = [1, 2, 3, 4, 5].map((dia) => ({
   fim: 18 * 60,
 }));
 
+/**
+ * Offsets fixos (minutos em relação ao UTC). O Brasil não usa horário de verão desde 2019,
+ * então um offset fixo por fuso é suficiente. Todos os fusos oferecidos pelo front precisam
+ * estar aqui: um fuso desconhecido cairia em -240 e deslocaria os prazos de SLA em silêncio.
+ */
 const OFFSETS: Record<string, number> = {
   'America/Cuiaba': -240,
   'America/Campo_Grande': -240,
-  'America/Sao_Paulo': -180,
+  'America/Porto_Velho': -240,
+  'America/Boa_Vista': -240,
   'America/Manaus': -240,
+  'America/Sao_Paulo': -180,
+  'America/Belem': -180,
+  'America/Fortaleza': -180,
+  'America/Recife': -180,
+  'America/Bahia': -180,
+  'America/Maceio': -180,
+  'America/Araguaina': -180,
+  'America/Rio_Branco': -300,
+  'America/Noronha': -120,
   UTC: 0,
 };
+
+export const FUSOS_SUPORTADOS = Object.keys(OFFSETS);
 
 export function offsetDoFuso(fuso: string | null | undefined): number {
   if (!fuso) return -240;

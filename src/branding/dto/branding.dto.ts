@@ -1,43 +1,23 @@
-import { Type } from 'class-transformer';
-import {
-  IsBoolean,
-  IsDateString,
-  IsEmail,
-  IsIn,
-  IsInt,
-  IsOptional,
-  IsString,
-  MaxLength,
-  MinLength,
-} from 'class-validator';
-
-const PERFIS = ['ADMIN', 'GESTOR', 'TECNICO', 'SOLICITANTE'] as const;
-const STATUS_USUARIO = ['ATIVO', 'DESATIVADO', 'PENDENTE_CONFIRMACAO'] as const;
-const STATUS_SIMPLES = ['ATIVO', 'INATIVO'] as const;
-const TIPO_CAT = ['INCIDENTE', 'REQUISICAO', 'AMBOS'] as const;
-const TIPO_ATIVO = ['NOTEBOOK', 'SERVIDOR', 'LICENCA_SOFTWARE', 'RUST_ROUTER', 'SWITCH', 'OUTRO'] as const;
-const STATUS_ATIVO = ['ATIVO', 'EM_MANUTENCAO', 'DESATIVADO', 'EM_ESTOQUE'] as const;
-const STATUS_ARTIGO = ['RASCUNHO', 'REVISAO', 'PUBLICADO', 'ARQUIVADO'] as const;
+import { IsOptional, IsString, Matches, MaxLength } from 'class-validator';
+import { COR_HEX_RE, LOGO_URL_RE } from '../../admin/dto/admin.dto.js';
 
 export class UpdateBrandingDto {
   @IsOptional()
   @IsString()
   @MaxLength(255)
+  @Matches(LOGO_URL_RE, { message: 'logo_url deve ser uma URL http(s) ou um caminho interno' })
   logo_url?: string;
 
   @IsOptional()
-  @IsString()
-  @MaxLength(7)
+  @Matches(COR_HEX_RE)
   cor_primaria?: string;
 
   @IsOptional()
-  @IsString()
-  @MaxLength(7)
+  @Matches(COR_HEX_RE)
   cor_secundaria?: string;
 
   @IsOptional()
-  @IsString()
-  @MaxLength(7)
+  @Matches(COR_HEX_RE)
   cor_fundo?: string;
 
   @IsOptional()
@@ -45,4 +25,3 @@ export class UpdateBrandingDto {
   @MaxLength(100)
   nome_portal?: string;
 }
-

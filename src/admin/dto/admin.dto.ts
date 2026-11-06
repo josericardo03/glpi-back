@@ -15,6 +15,11 @@ import {
   MinLength,
   ValidateNested,
 } from 'class-validator';
+import { FUSOS_SUPORTADOS } from '../../sla/business-time.js';
+
+/** Logotipo: vazio, URL http(s) ou caminho interno. Bloqueia `javascript:` e `data:`. */
+export const LOGO_URL_RE = /^$|^(https?:\/\/\S+|\/(?![/\\])\S*)$/;
+export const COR_HEX_RE = /^#[0-9A-Fa-f]{6}$/;
 
 const STATUS_CLIENTE = ['ATIVO', 'BLOQUEADO', 'INATIVO'] as const;
 const PERFIS = ['ADMIN', 'GESTOR', 'TECNICO', 'SOLICITANTE'] as const;
@@ -120,7 +125,7 @@ export class UpdateUsuarioAdminDto {
   @IsOptional()
   @Type(() => Number)
   @IsInt()
-  id_departamento?: number;
+  id_departamento?: number | null;
 
   @IsOptional()
   @IsString()
@@ -130,7 +135,7 @@ export class UpdateUsuarioAdminDto {
 
   @IsOptional()
   @IsIn(PERFIS)
-  perfil?: string;
+  perfil?: (typeof PERFIS)[number];
 
   @IsOptional()
   @IsIn(STATUS_USUARIO)
@@ -179,8 +184,7 @@ export class CreateHorarioDto {
   nome: string;
 
   @IsOptional()
-  @IsString()
-  @MaxLength(50)
+  @IsIn(FUSOS_SUPORTADOS)
   fuso_horario?: string;
 
   @IsOptional()
@@ -264,18 +268,19 @@ export class BrandingAdminDto {
   @IsOptional()
   @IsString()
   @MaxLength(255)
+  @Matches(LOGO_URL_RE, { message: 'logo_url deve ser uma URL http(s) ou um caminho interno' })
   logo_url?: string;
 
   @IsOptional()
-  @Matches(/^#[0-9A-Fa-f]{6}$/)
+  @Matches(COR_HEX_RE)
   cor_primaria?: string;
 
   @IsOptional()
-  @Matches(/^#[0-9A-Fa-f]{6}$/)
+  @Matches(COR_HEX_RE)
   cor_secundaria?: string;
 
   @IsOptional()
-  @Matches(/^#[0-9A-Fa-f]{6}$/)
+  @Matches(COR_HEX_RE)
   cor_fundo?: string;
 
   @IsOptional()
@@ -346,8 +351,7 @@ export class UpdateHorarioDto {
   nome?: string;
 
   @IsOptional()
-  @IsString()
-  @MaxLength(50)
+  @IsIn(FUSOS_SUPORTADOS)
   fuso_horario?: string;
 
   @IsOptional()

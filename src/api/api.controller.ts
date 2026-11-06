@@ -15,7 +15,7 @@ import { CurrentUser } from '../auth/current-user.decorator.js';
 import { Roles } from '../auth/roles.js';
 import type { AuthUser } from '../auth/auth.types.js';
 import { PrismaService } from '../prisma/prisma.service.js';
-import type { ConsultaLista } from './chamado-consulta.js';
+import { comNomes, includeNomes, type ConsultaLista } from './chamado-consulta.js';
 import { ListagemService } from './listagem.service.js';
 import { PainelService } from './painel.service.js';
 
@@ -55,12 +55,14 @@ export class ApiController {
       return this.prisma.usuarios.findMany({
         where: { id_cliente: user.id_cliente, perfil: { in: ['GESTOR', 'ADMIN'] } },
         select: { id: true, nome: true, perfil: true },
-        orderBy: { nome: 'asc' },
+        orderBy: [{ nome: 'asc' }, { id: 'asc' }],
         ...this.fatia(limite, pagina, 100, 200),
       });
     }
     return this.prisma.usuarios.findMany({
       where: this.tenant(user),
+      // Sem ordenação, a paginação por skip/take pode repetir ou omitir usuários entre páginas.
+      orderBy: { id: 'asc' },
       ...this.fatia(limite, pagina, 100, 200),
       select: {
         id: true,
@@ -126,7 +128,9 @@ export class ApiController {
     const chamado = await this.prisma.chamados.findUnique({
       where: { id_cliente_id: { id_cliente: user.id_cliente, id } },
       include: {
-        comentarios_chamados: true,
+        // Nomes resolvidos no servidor: o solicitante não tem acesso à lista completa de usuários.
+        ...includeNomes,
+        comentarios_chamados: { include: { usuarios: { select: { id: true, nome: true, perfil: true } } } },
         chamados_ativos: {
           include: {
             ativos_cmdb: {
@@ -143,9 +147,15 @@ export class ApiController {
         pesquisas_csat: {
           select: { nota_satisfacao: true, comentarios: true, data_resposta: true },
         },
-        worklogs: { orderBy: { data_execucao: 'desc' } },
+        worklogs: {
+          orderBy: { data_execucao: 'desc' },
+          include: { usuarios: { select: { id: true, nome: true } } },
+        },
         pausas_sla: { orderBy: { data_pausa: 'desc' } },
-        historico_status_chamados: { orderBy: { data_alteracao: 'desc' } },
+        historico_status_chamados: {
+          orderBy: { data_alteracao: 'desc' },
+          include: { usuarios: { select: { id: true, nome: true } } },
+        },
         anexos_chamados: {
           select: {
             id: true,
@@ -167,10 +177,26 @@ export class ApiController {
     if (user.perfil === 'SOLICITANTE' && chamado.id_solicitante !== user.id) {
       throw new ForbiddenException('Chamado de outro solicitante');
     }
-    const comentarios =
-      user.perfil === 'SOLICITANTE'
+    const solicitante = user.perfil === 'SOLICITANTE';
+    const comentarios = (
+      solicitante
         ? chamado.comentarios_chamados.filter((item) => item.tipo_visibilidade === 'PUBLICO')
-        : chamado.comentarios_chamados;
+        : chamado.comentarios_chamados
+    ).map(({ usuarios, ...comentario }) => ({
+      ...comentario,
+      autor: { id: usuarios.id, nome: usuarios.nome, perfil: usuarios.perfil },
+    }));
+    // Apontamentos de horas descrevem o trabalho interno da equipe: o solicitante não os vê.
+    const worklogs = solicitante
+      ? []
+      : chamado.worklogs.map(({ usuarios, ...worklog }) => ({
+          ...worklog,
+          tecnico: { id: usuarios.id, nome: usuarios.nome },
+        }));
+    const historico = chamado.historico_status_chamados.map(({ usuarios, ...evento }) => ({
+      ...evento,
+      usuario: { id: usuarios.id, nome: usuarios.nome },
+    }));
     const internos = new Set(
       chamado.comentarios_chamados
         .filter((item) => item.tipo_visibilidade === 'INTERNO')
@@ -189,7 +215,7 @@ export class ApiController {
       tipo: vinculo.ativos_cmdb.tipo_ativo,
     }));
     return {
-      ...chamado,
+      ...comNomes(chamado),
       id_ativo_afetado: ativos[0]?.id ?? null,
       ativos,
       problemas: chamado.chamados_problemas.map((vinculo) => vinculo.problemas),
@@ -198,6 +224,8 @@ export class ApiController {
         ? { ...chamado.pesquisas_csat, avaliado: true }
         : { avaliado: false },
       comentarios_chamados: comentarios,
+      worklogs,
+      historico_status_chamados: historico,
       anexos_chamados: anexos.map((anexo) => ({
         ...anexo,
         tamanho_bytes: Number(anexo.tamanho_bytes),

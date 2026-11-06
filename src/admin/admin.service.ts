@@ -8,6 +8,7 @@ import { ConfigService } from '@nestjs/config';
 import { Prisma } from '@prisma/client';
 import bcrypt from 'bcrypt';
 import net from 'node:net';
+import { inicioCuiaba, somarDias } from '../api/chamado-consulta.js';
 import type { AuthUser } from '../auth/auth.types.js';
 import { AuditService } from '../audit/audit.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
@@ -158,6 +159,9 @@ export class AdminService {
       select: usuarioPublico,
     });
     if (!atual) throw new NotFoundException('Usuário não encontrado');
+    if (id === user.id && ((dto.status && dto.status !== 'ATIVO') || (dto.perfil && dto.perfil !== atual.perfil))) {
+      throw new BadRequestException('Você não pode desativar a própria conta nem alterar o próprio perfil');
+    }
     if (dto.id_departamento) await this.exigeDepartamento(user.id_cliente, dto.id_departamento);
     const senhaHash = dto.senha_hash ? await this.normalizarSenha(dto.senha_hash) : undefined;
     try {
@@ -348,6 +352,7 @@ export class AdminService {
   }
 
   async criarPolitica(user: AuthUser, dto: CreatePoliticaDto) {
+    this.exigeTemposCoerentes(dto.tempo_resposta_min, dto.tempo_resolucao_min);
     const horario = await this.prisma.horarios_comerciais.findFirst({
       where: { id: dto.id_horario_comercial, id_cliente: user.id_cliente },
     });
@@ -485,7 +490,7 @@ export class AdminService {
       where: { id, id_cliente: user.id_cliente },
     });
     if (!integracao) throw new NotFoundException('Integração não encontrada');
-    const config = integracao.configuracoes as Record<string, unknown>;
+    const config = (integracao.configuracoes ?? {}) as Record<string, unknown>;
     const host = typeof config.host === 'string' ? config.host : '';
     const port = Number(config.port);
     let status: 'SUCESSO' | 'FALHA' = 'FALHA';
@@ -526,12 +531,18 @@ export class AdminService {
   }
 
   async auditoria(user: AuthUser, filtro: FiltroAuditoriaDto) {
+    // Datas sem hora valem o dia inteiro no fuso de Cuiabá, o mesmo usado nos relatórios.
+    const apenasDia = /^\d{4}-\d{2}-\d{2}$/;
     const dataCriacao: Prisma.DateTimeFilter = {};
-    if (filtro.data_inicio) dataCriacao.gte = new Date(filtro.data_inicio);
+    if (filtro.data_inicio) {
+      dataCriacao.gte = apenasDia.test(filtro.data_inicio)
+        ? inicioCuiaba(filtro.data_inicio)
+        : new Date(filtro.data_inicio);
+    }
     if (filtro.data_fim) {
-      const fim = new Date(filtro.data_fim);
-      if (/^\d{4}-\d{2}-\d{2}$/.test(filtro.data_fim)) fim.setUTCHours(23, 59, 59, 999);
-      dataCriacao.lte = fim;
+      dataCriacao.lte = apenasDia.test(filtro.data_fim)
+        ? new Date(inicioCuiaba(somarDias(filtro.data_fim, 1)).getTime() - 1)
+        : new Date(filtro.data_fim);
     }
     const limite = Math.min(200, filtro.limite ?? 100);
     const pagina = Math.max(1, filtro.pagina ?? 1);
@@ -542,7 +553,7 @@ export class AdminService {
         ...(filtro.acao ? { acao: filtro.acao } : {}),
         ...(filtro.data_inicio || filtro.data_fim ? { data_criacao: dataCriacao } : {}),
       },
-      orderBy: { data_criacao: 'desc' },
+      orderBy: [{ data_criacao: 'desc' }, { id: 'desc' }],
       skip: (pagina - 1) * limite,
       take: limite,
     });
@@ -684,6 +695,10 @@ export class AdminService {
       });
       if (!horario) throw new NotFoundException('Horário comercial não encontrado');
     }
+    this.exigeTemposCoerentes(
+      dto.tempo_resposta_min ?? atual.tempo_resposta_min,
+      dto.tempo_resolucao_min ?? atual.tempo_resolucao_min,
+    );
     const status = dto.status ?? atual.status;
     const prioridade = dto.prioridade_alvo ?? atual.prioridade_alvo;
     const tipo = dto.tipo_chamado_alvo ?? atual.tipo_chamado_alvo;
@@ -716,6 +731,12 @@ export class AdminService {
       });
     } catch (error) {
       throw this.traduzir(error, 'Já existe política de SLA ativa para esta prioridade e tipo');
+    }
+  }
+
+  private exigeTemposCoerentes(respostaMin: number, resolucaoMin: number) {
+    if (respostaMin >= resolucaoMin) {
+      throw new BadRequestException('O tempo de resposta deve ser menor que o tempo de solução');
     }
   }
 

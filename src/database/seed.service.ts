@@ -28,8 +28,14 @@ export class SeedService {
 
       const email =
         this.config.get<string>('SEED_ADMIN_EMAIL') ?? 'admin@itsm.local';
-      const password =
-        this.config.get<string>('SEED_ADMIN_PASSWORD') ?? 'Admin@123456';
+      const informada = this.config.get<string>('SEED_ADMIN_PASSWORD');
+      if (!informada && process.env.NODE_ENV === 'production') {
+        this.logger.error(
+          'Seed ignorado: defina SEED_ADMIN_PASSWORD em produção (a senha padrão é pública).',
+        );
+        return;
+      }
+      const password = informada ?? 'Admin@123456';
       const senha_hash = await bcrypt.hash(password, 12);
 
       await this.prisma.$transaction(async (tx) => {

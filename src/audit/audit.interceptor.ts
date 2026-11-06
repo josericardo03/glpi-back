@@ -11,14 +11,9 @@ import { auditAls } from './audit.context.js';
 @Injectable()
 export class AuditInterceptor implements NestInterceptor {
   intercept(context: ExecutionContext, next: CallHandler): Observable<unknown> {
-    const req = context.switchToHttp().getRequest<{
-      ip?: string;
-      user?: AuthUser;
-      headers: Record<string, string | string[] | undefined>;
-    }>();
-    const forwarded = req.headers['x-forwarded-for'];
-    const headerIp = Array.isArray(forwarded) ? forwarded[0] : forwarded;
-    const ip = headerIp?.split(',')[0]?.trim() || req.ip || null;
-    return auditAls.run({ ip, user: req.user }, () => next.handle());
+    const req = context.switchToHttp().getRequest<{ ip?: string; user?: AuthUser }>();
+    // `req.ip` já considera o X-Forwarded-For apenas dos proxies confiáveis (`trust proxy` em main.ts).
+    // Ler o cabeçalho direto deixaria o cliente forjar o IP gravado na auditoria.
+    return auditAls.run({ ip: req.ip ?? null, user: req.user }, () => next.handle());
   }
 }

@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import bcrypt from 'bcrypt';
 import type { AuthUser } from '../auth/auth.types.js';
 import { AuditService } from '../audit/audit.service.js';
@@ -64,6 +64,9 @@ export class UsuariosService {
       select: usuarioPublico,
     });
     if (!atual) throw new NotFoundException('Usuário não encontrado');
+    if (id === user.id && ((dto.status && dto.status !== 'ATIVO') || (dto.perfil && dto.perfil !== atual.perfil))) {
+      throw new BadRequestException('Você não pode desativar a própria conta nem alterar o próprio perfil');
+    }
     if (dto.id_departamento) await this.exigeDepartamento(user.id_cliente, dto.id_departamento);
     const senhaHash = dto.password ? await bcrypt.hash(dto.password, 12) : undefined;
     return this.prisma.$transaction(async (tx) => {

@@ -186,7 +186,12 @@ export class CatalogoService {
     if (!atual) throw new NotFoundException('Problema não encontrado');
     if (typeof dto.id_tecnico_atribuido === 'number') {
       const tecnico = await this.prisma.usuarios.findFirst({
-        where: { id: dto.id_tecnico_atribuido, id_cliente: user.id_cliente },
+        where: {
+          id: dto.id_tecnico_atribuido,
+          id_cliente: user.id_cliente,
+          status: 'ATIVO',
+          perfil: { in: ['TECNICO', 'GESTOR', 'ADMIN'] },
+        },
       });
       if (!tecnico) throw new NotFoundException('Técnico não encontrado');
     }
@@ -282,20 +287,29 @@ export class CatalogoService {
       const chamado = await this.prisma.chamados.findFirst({
         where: { id: dto.id_chamado, id_cliente: user.id_cliente },
       });
-      if (!chamado) throw new NotFoundException('Chamado não encontrado');
+      // Para o solicitante, o chamado de outra pessoa é tratado como inexistente.
+      if (!chamado || (user.perfil === 'SOLICITANTE' && chamado.id_solicitante !== user.id)) {
+        throw new NotFoundException('Chamado não encontrado');
+      }
     }
     if (temMudanca) {
+      if (user.perfil === 'SOLICITANTE') {
+        throw new ForbiddenException('Somente a equipe técnica pode pedir aprovação de mudança');
+      }
       const mudanca = await this.prisma.mudancas.findFirst({
         where: { id: dto.id_mudanca, id_cliente: user.id_cliente },
       });
       if (!mudanca) throw new NotFoundException('Mudança não encontrada');
     }
     const aprovador = await this.prisma.usuarios.findFirst({
-      where: { id: dto.id_aprovador, id_cliente: user.id_cliente },
+      where: { id: dto.id_aprovador, id_cliente: user.id_cliente, status: 'ATIVO' },
     });
     if (!aprovador) throw new NotFoundException('Aprovador não encontrado');
     if (aprovador.perfil !== 'GESTOR' && aprovador.perfil !== 'ADMIN') {
       throw new BadRequestException('O aprovador precisa ser GESTOR ou ADMIN');
+    }
+    if (aprovador.id === user.id) {
+      throw new BadRequestException('Você não pode ser o aprovador da própria solicitação');
     }
     return this.prisma.$transaction(async (tx) => {
       const row = await tx.requisicoes_aprovacao.create({
@@ -344,13 +358,18 @@ export class CatalogoService {
       throw new BadRequestException('Aprovação precisa apontar chamado ou mudança, nunca os dois');
     }
     const atualizada = await this.prisma.$transaction(async (tx) => {
-      const saved = await tx.requisicoes_aprovacao.update({
-        where: { id_cliente_id: { id_cliente: user.id_cliente, id } },
+      // A condição `status: PENDENTE` torna a decisão atômica: duas decisões simultâneas não se sobrepõem.
+      const decidida = await tx.requisicoes_aprovacao.updateMany({
+        where: { id, id_cliente: user.id_cliente, status: 'PENDENTE' },
         data: {
           status: dto.status,
           justificativa_aprovador: dto.justificativa_aprovador?.trim(),
           data_decisao: new Date(),
         },
+      });
+      if (decidida.count === 0) throw new ConflictException('Esta aprovação já foi decidida');
+      const saved = await tx.requisicoes_aprovacao.findUniqueOrThrow({
+        where: { id_cliente_id: { id_cliente: user.id_cliente, id } },
       });
       if (saved.id_mudanca) {
         const mudanca = await tx.mudancas.findFirst({

@@ -11,12 +11,18 @@ process.on('unhandledRejection', (reason) => {
 });
 
 process.on('uncaughtException', (error) => {
+  // Após uma exceção não tratada o processo está em estado indefinido: registra e encerra
+  // para o orquestrador (Docker `restart`) subir uma instância limpa.
   logger.error(error.stack ?? error.message);
+  process.exit(1);
 });
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
   app.enableShutdownHooks();
+  // O nginx do docker-compose acrescenta o IP real ao X-Forwarded-For. Confiar só em proxies de rede
+  // privada faz `req.ip` ignorar entradas forjadas pelo cliente. Ajuste com TRUST_PROXY se preciso.
+  app.getHttpAdapter().getInstance().set('trust proxy', process.env.TRUST_PROXY ?? 'loopback, linklocal, uniquelocal');
   app.use(compression());
   app.setGlobalPrefix('api');
   app.enableCors({

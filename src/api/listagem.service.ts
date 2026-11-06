@@ -60,6 +60,7 @@ export class ListagemService {
       this.prisma.ativos_cmdb.findMany({
         where,
         include: { usuarios: { select: { id: true, nome: true } } },
+        orderBy: { id: 'asc' },
         ...pagina,
       }),
       this.prisma.ativos_cmdb.count({ where }),
