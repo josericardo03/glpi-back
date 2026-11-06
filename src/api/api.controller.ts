@@ -15,7 +15,7 @@ import { CurrentUser } from '../auth/current-user.decorator.js';
 import { Roles } from '../auth/roles.js';
 import type { AuthUser } from '../auth/auth.types.js';
 import { PrismaService } from '../prisma/prisma.service.js';
-import { comNomes, includeNomes, type ConsultaLista } from './chamado-consulta.js';
+import { comNomes, fatia, includeNomes, type ConsultaLista } from './chamado-consulta.js';
 import { ListagemService } from './listagem.service.js';
 import { PainelService } from './painel.service.js';
 
@@ -56,14 +56,14 @@ export class ApiController {
         where: { id_cliente: user.id_cliente, perfil: { in: ['GESTOR', 'ADMIN'] } },
         select: { id: true, nome: true, perfil: true },
         orderBy: [{ nome: 'asc' }, { id: 'asc' }],
-        ...this.fatia(limite, pagina, 100, 200),
+        ...fatia(limite, pagina, 100, 200),
       });
     }
     return this.prisma.usuarios.findMany({
       where: this.tenant(user),
       // Sem ordenação, a paginação por skip/take pode repetir ou omitir usuários entre páginas.
       orderBy: { id: 'asc' },
-      ...this.fatia(limite, pagina, 100, 200),
+      ...fatia(limite, pagina, 100, 200),
       select: {
         id: true,
         id_cliente: true,
@@ -354,11 +354,5 @@ export class ApiController {
 
   private tenant(user: AuthUser) {
     return { id_cliente: user.id_cliente };
-  }
-
-  private fatia(limite: string | undefined, pagina: string | undefined, padrao: number, teto: number) {
-    const tamanho = Math.min(teto, Math.max(1, Number(limite) || padrao));
-    const paginaNum = Math.max(1, Number(pagina) || 1);
-    return { take: tamanho, skip: (paginaNum - 1) * tamanho };
   }
 }

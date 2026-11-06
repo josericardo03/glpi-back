@@ -25,9 +25,12 @@ const TRANSICOES: Record<string, string[]> = {
   NOVO: ['EM_ATENDIMENTO', 'PENDENTE'],
   EM_ATENDIMENTO: ['PENDENTE', 'RESOLVIDO'],
   PENDENTE: ['EM_ATENDIMENTO'],
-  RESOLVIDO: ['CONCLUIDO'],
+  // RESOLVIDO -> EM_ATENDIMENTO é a reabertura (o solicitante recusa a solução, ou a equipe revê).
+  RESOLVIDO: ['CONCLUIDO', 'EM_ATENDIMENTO'],
   CONCLUIDO: [],
 };
+
+const CONFLITO_STATUS = 'O chamado foi alterado por outra pessoa. Atualize a tela e tente novamente.';
 
 @Injectable()
 export class ChamadosService {
@@ -112,8 +115,14 @@ export class ChamadosService {
 
   async atribuir(user: AuthUser, id: number, dto: AtribuirChamadoDto) {
     const chamado = await this.obter(user, id, false);
-    if (dto.id_tecnico_atribuido === undefined) {
-      throw new BadRequestException('Informe id_tecnico_atribuido');
+    if (dto.id_tecnico_atribuido === undefined && dto.id_grupo_responsavel === undefined) {
+      throw new BadRequestException('Informe id_tecnico_atribuido ou id_grupo_responsavel');
+    }
+    if (typeof dto.id_grupo_responsavel === 'number') {
+      const grupo = await this.prisma.grupos_suporte.findFirst({
+        where: { id: dto.id_grupo_responsavel, id_cliente: user.id_cliente, status: 'ATIVO' },
+      });
+      if (!grupo) throw new NotFoundException('Grupo não encontrado');
     }
     if (typeof dto.id_tecnico_atribuido === 'number') {
       const tecnico = await this.prisma.usuarios.findFirst({
@@ -129,16 +138,31 @@ export class ChamadosService {
     return this.prisma.$transaction(async (tx) => {
       const row = await tx.chamados.update({
         where: { id_cliente_id: { id_cliente: user.id_cliente, id } },
-        data: { id_tecnico_atribuido: dto.id_tecnico_atribuido },
-        select: { id: true, id_cliente: true, id_tecnico_atribuido: true, status: true },
+        data: {
+          ...(dto.id_tecnico_atribuido !== undefined ? { id_tecnico_atribuido: dto.id_tecnico_atribuido } : {}),
+          ...(dto.id_grupo_responsavel !== undefined ? { id_grupo_responsavel: dto.id_grupo_responsavel } : {}),
+        },
+        select: {
+          id: true,
+          id_cliente: true,
+          id_tecnico_atribuido: true,
+          id_grupo_responsavel: true,
+          status: true,
+        },
       });
       await this.audit.record(tx, {
         id_cliente: user.id_cliente,
         acao: 'ASSIGN_CHAMADO',
         tabela_afetada: 'chamados',
         registro_id: id,
-        valor_anterior: { id_tecnico_atribuido: chamado.id_tecnico_atribuido },
-        valor_novo: { id_tecnico_atribuido: row.id_tecnico_atribuido },
+        valor_anterior: {
+          id_tecnico_atribuido: chamado.id_tecnico_atribuido,
+          id_grupo_responsavel: chamado.id_grupo_responsavel,
+        },
+        valor_novo: {
+          id_tecnico_atribuido: row.id_tecnico_atribuido,
+          id_grupo_responsavel: row.id_grupo_responsavel,
+        },
       });
       return row;
     });
@@ -146,6 +170,14 @@ export class ChamadosService {
 
   async mudarStatus(user: AuthUser, id: number, dto: StatusChamadoDto) {
     const chamado = await this.obter(user, id);
+    if (user.perfil === 'SOLICITANTE') {
+      // O dono do chamado só confirma a conclusão ou reabre um chamado já resolvido.
+      const permitido =
+        chamado.status === 'RESOLVIDO' && (dto.status_novo === 'CONCLUIDO' || dto.status_novo === 'EM_ATENDIMENTO');
+      if (!permitido) {
+        throw new ForbiddenException('O solicitante só pode concluir ou reabrir um chamado resolvido');
+      }
+    }
     if (dto.status_novo === 'PENDENTE') {
       if (!dto.motivo_pausa) {
         throw new BadRequestException('motivo_pausa é obrigatório para PENDENTE');
@@ -193,17 +225,25 @@ export class ChamadosService {
     }
 
     const tempo = await this.tempoNoStatus(chamado);
+    const reabrindo = chamado.status === 'RESOLVIDO' && dto.status_novo === 'EM_ATENDIMENTO';
     const atualizado = await this.prisma.$transaction(async (tx) => {
-      const saved = await tx.chamados.update({
-        where: { id_cliente_id: { id_cliente: user.id_cliente, id } },
+      // Condicionar ao status lido evita que duas requisições simultâneas apliquem transições conflitantes.
+      const alterado = await tx.chamados.updateMany({
+        where: { id, id_cliente: user.id_cliente, status: chamado.status },
         data: {
           status: dto.status_novo,
           ...(dto.status_novo === 'RESOLVIDO'
             ? { resolucao: dto.resolucao, data_resolucao: dataResolucao }
             : {}),
           ...(dto.status_novo === 'CONCLUIDO' ? { data_fechamento: dataFechamento } : {}),
+          // Reabrir limpa a resolução anterior (ela segue no histórico da auditoria).
+          ...(reabrindo ? { resolucao: null, data_resolucao: null } : {}),
           sla_vencido: slaVencido,
         },
+      });
+      if (alterado.count === 0) throw new ConflictException(CONFLITO_STATUS);
+      const saved = await tx.chamados.findUniqueOrThrow({
+        where: { id_cliente_id: { id_cliente: user.id_cliente, id } },
       });
       await tx.historico_status_chamados.create({
         data: {
@@ -217,10 +257,12 @@ export class ChamadosService {
       });
       await this.audit.record(tx, {
         id_cliente: user.id_cliente,
-        acao: 'UPDATE_STATUS',
+        acao: reabrindo ? 'REOPEN_CHAMADO' : 'UPDATE_STATUS',
         tabela_afetada: 'chamados',
         registro_id: id,
-        valor_anterior: { status: chamado.status },
+        valor_anterior: reabrindo
+          ? { status: chamado.status, resolucao: chamado.resolucao }
+          : { status: chamado.status },
         valor_novo: {
           status: dto.status_novo,
           resolucao: dto.resolucao ?? null,
@@ -285,10 +327,11 @@ export class ChamadosService {
         !!chamado.data_previsao_resposta &&
         agora > chamado.data_previsao_resposta);
     return this.prisma.$transaction(async (tx) => {
-      await tx.chamados.update({
-        where: { id_cliente_id: { id_cliente: user.id_cliente, id } },
+      const alterado = await tx.chamados.updateMany({
+        where: { id, id_cliente: user.id_cliente, status: chamado.status },
         data: { status: 'PENDENTE', sla_vencido: slaVencido },
       });
+      if (alterado.count === 0) throw new ConflictException(CONFLITO_STATUS);
       const historico = await tx.historico_status_chamados.create({
         data: {
           id_cliente: user.id_cliente,
@@ -361,12 +404,14 @@ export class ChamadosService {
     const tempo = await this.tempoNoStatus(chamado);
 
     return this.prisma.$transaction(async (tx) => {
-      await tx.pausas_sla.update({
-        where: { id_cliente_id: { id_cliente: user.id_cliente, id: pausa.id } },
+      // Só a primeira requisição encerra a pausa: a segunda não encontra mais pausa aberta nem status PENDENTE.
+      const encerrada = await tx.pausas_sla.updateMany({
+        where: { id: pausa.id, id_cliente: user.id_cliente, data_retomada: null },
         data: { data_retomada: agora, tempo_pausado_seg: segundos },
       });
-      await tx.chamados.update({
-        where: { id_cliente_id: { id_cliente: user.id_cliente, id } },
+      if (encerrada.count === 0) throw new ConflictException(CONFLITO_STATUS);
+      const alterado = await tx.chamados.updateMany({
+        where: { id, id_cliente: user.id_cliente, status: 'PENDENTE' },
         data: {
           status: 'EM_ATENDIMENTO',
           tempo_acumulado_pausa_s: { increment: segundos },
@@ -375,6 +420,7 @@ export class ChamadosService {
           sla_vencido: slaVencido,
         },
       });
+      if (alterado.count === 0) throw new ConflictException(CONFLITO_STATUS);
       await tx.historico_status_chamados.create({
         data: {
           id_cliente: user.id_cliente,

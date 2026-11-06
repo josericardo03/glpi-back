@@ -5,7 +5,6 @@ import { conflito } from '../common/conflito.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { StorageService, type ArquivoUpload } from '../storage/storage.service.js';
 import { CreateArtigoDto, CreateCategoriaKbDto, FeedbackArtigoDto, UpdateArtigoDto } from './dto/artigo.dto.js';
-import { CreateKbArtigoDto, CreateKbCategoriaDto, FeedbackKbDto } from './dto/kb.dto.js';
 
 @Injectable()
 export class KbService {
@@ -15,7 +14,7 @@ export class KbService {
     private readonly storage: StorageService,
   ) {}
 
-  async criarCategoria(user: AuthUser, dto: CreateCategoriaKbDto | CreateKbCategoriaDto, acao: string) {
+  async criarCategoria(user: AuthUser, dto: CreateCategoriaKbDto, acao: string) {
     try {
       return await this.prisma.$transaction(async (tx) => {
         const row = await tx.categorias_artigos_kb.create({
@@ -40,7 +39,7 @@ export class KbService {
     }
   }
 
-  async criarArtigo(user: AuthUser, dto: CreateArtigoDto | CreateKbArtigoDto, acao: string) {
+  async criarArtigo(user: AuthUser, dto: CreateArtigoDto, acao: string) {
     const categoria = await this.prisma.categorias_artigos_kb.findFirst({
       where: { id: dto.id_categoria, id_cliente: user.id_cliente },
     });
@@ -265,7 +264,7 @@ export class KbService {
     });
   }
 
-  async feedback(user: AuthUser, idArtigo: number, dto: FeedbackArtigoDto | FeedbackKbDto, acao: string) {
+  async feedback(user: AuthUser, idArtigo: number, dto: FeedbackArtigoDto, acao: string) {
     const artigo = await this.prisma.artigos_kb.findFirst({
       where: { id: idArtigo, id_cliente: user.id_cliente, status: 'PUBLICADO' },
     });

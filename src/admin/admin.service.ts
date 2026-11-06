@@ -29,7 +29,7 @@ import {
   UpdatePoliticaDto,
   UpdateUsuarioAdminDto,
 } from './dto/admin.dto.js';
-import { criptografarConfig, mascararConfig } from './segredo.js';
+import { criptografarConfig, descriptografarConfig, mascararConfig, segredosDeIntegracao } from './segredo.js';
 
 const usuarioPublico = {
   id: true,
@@ -584,13 +584,24 @@ export class AdminService {
       where: { id, id_cliente: user.id_cliente },
     });
     if (!atual) throw new NotFoundException('Horário comercial não encontrado');
-    return this.prisma.horarios_comerciais.update({
-      where: { id_cliente_id: { id_cliente: user.id_cliente, id } },
-      data: {
-        nome: dto.nome?.trim(),
-        fuso_horario: dto.fuso_horario?.trim(),
-        status: dto.status,
-      },
+    return this.prisma.$transaction(async (tx) => {
+      const row = await tx.horarios_comerciais.update({
+        where: { id_cliente_id: { id_cliente: user.id_cliente, id } },
+        data: {
+          nome: dto.nome?.trim(),
+          fuso_horario: dto.fuso_horario?.trim(),
+          status: dto.status,
+        },
+      });
+      await this.audit.record(tx, {
+        id_cliente: user.id_cliente,
+        acao: 'UPDATE_BUSINESS_HOURS',
+        tabela_afetada: 'horarios_comerciais',
+        registro_id: id,
+        valor_anterior: { nome: atual.nome, fuso_horario: atual.fuso_horario, status: atual.status },
+        valor_novo: { nome: row.nome, fuso_horario: row.fuso_horario, status: row.status },
+      });
+      return row;
     });
   }
 
@@ -600,8 +611,18 @@ export class AdminService {
     });
     if (!atual) throw new NotFoundException('Horário comercial não encontrado');
     try {
-      await this.prisma.horarios_comerciais.delete({
-        where: { id_cliente_id: { id_cliente: user.id_cliente, id } },
+      await this.prisma.$transaction(async (tx) => {
+        await tx.horarios_comerciais.delete({
+          where: { id_cliente_id: { id_cliente: user.id_cliente, id } },
+        });
+        await this.audit.record(tx, {
+          id_cliente: user.id_cliente,
+          acao: 'DELETE_BUSINESS_HOURS',
+          tabela_afetada: 'horarios_comerciais',
+          registro_id: id,
+          valor_anterior: { nome: atual.nome, fuso_horario: atual.fuso_horario },
+          valor_novo: null,
+        });
       });
     } catch (error) {
       if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2003') {
@@ -621,15 +642,29 @@ export class AdminService {
     const fim = this.normalizarHora(dto.hora_fim);
     if (fim <= inicio) throw new BadRequestException('hora_fim deve ser posterior a hora_inicio');
     try {
-      const rows = await this.prisma.$queryRaw<
-        { id: number; dia_semana: number; hora_inicio: string; hora_fim: string }[]
-      >`
-        UPDATE intervalos_horarios
-        SET dia_semana = ${dto.dia_semana}, hora_inicio = ${inicio}::time, hora_fim = ${fim}::time
-        WHERE id_cliente = ${user.id_cliente} AND id = ${idIntervalo} AND id_horario_comercial = ${idHorario}
-        RETURNING id, dia_semana, hora_inicio::text, hora_fim::text
-      `;
-      return rows[0];
+      return await this.prisma.$transaction(async (tx) => {
+        const rows = await tx.$queryRaw<
+          { id: number; dia_semana: number; hora_inicio: string; hora_fim: string }[]
+        >`
+          UPDATE intervalos_horarios
+          SET dia_semana = ${dto.dia_semana}, hora_inicio = ${inicio}::time, hora_fim = ${fim}::time
+          WHERE id_cliente = ${user.id_cliente} AND id = ${idIntervalo} AND id_horario_comercial = ${idHorario}
+          RETURNING id, dia_semana, hora_inicio::text, hora_fim::text
+        `;
+        await this.audit.record(tx, {
+          id_cliente: user.id_cliente,
+          acao: 'UPDATE_INTERVAL',
+          tabela_afetada: 'intervalos_horarios',
+          registro_id: idIntervalo,
+          valor_anterior: {
+            dia_semana: existe.dia_semana,
+            hora_inicio: this.formatarHora(existe.hora_inicio),
+            hora_fim: this.formatarHora(existe.hora_fim),
+          },
+          valor_novo: { dia_semana: dto.dia_semana, hora_inicio: inicio, hora_fim: fim },
+        });
+        return rows[0];
+      });
     } catch (error) {
       throw this.traduzir(error, 'Intervalo inválido');
     }
@@ -640,8 +675,23 @@ export class AdminService {
       where: { id: idIntervalo, id_horario_comercial: idHorario, id_cliente: user.id_cliente },
     });
     if (!row) throw new NotFoundException('Intervalo não encontrado');
-    await this.prisma.intervalos_horarios.delete({
-      where: { id_cliente_id: { id_cliente: user.id_cliente, id: idIntervalo } },
+    await this.prisma.$transaction(async (tx) => {
+      await tx.intervalos_horarios.delete({
+        where: { id_cliente_id: { id_cliente: user.id_cliente, id: idIntervalo } },
+      });
+      await this.audit.record(tx, {
+        id_cliente: user.id_cliente,
+        acao: 'DELETE_INTERVAL',
+        tabela_afetada: 'intervalos_horarios',
+        registro_id: idIntervalo,
+        valor_anterior: {
+          id_horario_comercial: idHorario,
+          dia_semana: row.dia_semana,
+          hora_inicio: this.formatarHora(row.hora_inicio),
+          hora_fim: this.formatarHora(row.hora_fim),
+        },
+        valor_novo: null,
+      });
     });
     return { removido: true, id: idIntervalo };
   }
@@ -659,14 +709,25 @@ export class AdminService {
     });
     if (!atual) throw new NotFoundException('Feriado não encontrado');
     try {
-      return await this.prisma.feriados.update({
-        where: { id_cliente_id: { id_cliente: user.id_cliente, id } },
-        data: {
-          nome: dto.nome?.trim(),
-          dia: dto.dia,
-          mes: dto.mes,
-          ...(dto.ano !== undefined ? { ano: dto.ano } : {}),
-        },
+      return await this.prisma.$transaction(async (tx) => {
+        const row = await tx.feriados.update({
+          where: { id_cliente_id: { id_cliente: user.id_cliente, id } },
+          data: {
+            nome: dto.nome?.trim(),
+            dia: dto.dia,
+            mes: dto.mes,
+            ...(dto.ano !== undefined ? { ano: dto.ano } : {}),
+          },
+        });
+        await this.audit.record(tx, {
+          id_cliente: user.id_cliente,
+          acao: 'UPDATE_HOLIDAY',
+          tabela_afetada: 'feriados',
+          registro_id: id,
+          valor_anterior: { nome: atual.nome, dia: atual.dia, mes: atual.mes, ano: atual.ano },
+          valor_novo: { nome: row.nome, dia: row.dia, mes: row.mes, ano: row.ano },
+        });
+        return row;
       });
     } catch (error) {
       throw this.traduzir(error, 'Feriado já cadastrado nesta data');
@@ -678,8 +739,18 @@ export class AdminService {
       where: { id, id_cliente: user.id_cliente },
     });
     if (!atual) throw new NotFoundException('Feriado não encontrado');
-    await this.prisma.feriados.delete({
-      where: { id_cliente_id: { id_cliente: user.id_cliente, id } },
+    await this.prisma.$transaction(async (tx) => {
+      await tx.feriados.delete({
+        where: { id_cliente_id: { id_cliente: user.id_cliente, id } },
+      });
+      await this.audit.record(tx, {
+        id_cliente: user.id_cliente,
+        acao: 'DELETE_HOLIDAY',
+        tabela_afetada: 'feriados',
+        registro_id: id,
+        valor_anterior: { nome: atual.nome, dia: atual.dia, mes: atual.mes, ano: atual.ano },
+        valor_novo: null,
+      });
     });
     return { removido: true, id };
   }
@@ -717,17 +788,37 @@ export class AdminService {
       }
     }
     try {
-      return await this.prisma.politicas_sla.update({
-        where: { id_cliente_id: { id_cliente: user.id_cliente, id } },
-        data: {
-          nome: dto.nome?.trim(),
-          prioridade_alvo: dto.prioridade_alvo,
-          tipo_chamado_alvo: dto.tipo_chamado_alvo,
-          tempo_resposta_min: dto.tempo_resposta_min,
-          tempo_resolucao_min: dto.tempo_resolucao_min,
-          id_horario_comercial: dto.id_horario_comercial,
-          status: dto.status,
-        },
+      return await this.prisma.$transaction(async (tx) => {
+        const row = await tx.politicas_sla.update({
+          where: { id_cliente_id: { id_cliente: user.id_cliente, id } },
+          data: {
+            nome: dto.nome?.trim(),
+            prioridade_alvo: dto.prioridade_alvo,
+            tipo_chamado_alvo: dto.tipo_chamado_alvo,
+            tempo_resposta_min: dto.tempo_resposta_min,
+            tempo_resolucao_min: dto.tempo_resolucao_min,
+            id_horario_comercial: dto.id_horario_comercial,
+            status: dto.status,
+          },
+        });
+        const resumo = (p: typeof atual) => ({
+          nome: p.nome,
+          prioridade_alvo: p.prioridade_alvo,
+          tipo_chamado_alvo: p.tipo_chamado_alvo,
+          tempo_resposta_min: p.tempo_resposta_min,
+          tempo_resolucao_min: p.tempo_resolucao_min,
+          id_horario_comercial: p.id_horario_comercial,
+          status: p.status,
+        });
+        await this.audit.record(tx, {
+          id_cliente: user.id_cliente,
+          acao: 'UPDATE_SLA_POLICY',
+          tabela_afetada: 'politicas_sla',
+          registro_id: id,
+          valor_anterior: resumo(atual),
+          valor_novo: resumo(row),
+        });
+        return row;
       });
     } catch (error) {
       throw this.traduzir(error, 'Já existe política de SLA ativa para esta prioridade e tipo');
@@ -748,8 +839,25 @@ export class AdminService {
     return bcrypt.hash(valor, 12);
   }
 
+  /** Chave de gravação: o segredo próprio das integrações, ou o JWT_SECRET enquanto ele não existir. */
   private segredo() {
-    return this.config.get<string>('JWT_SECRET') ?? 'itsm-local';
+    return this.segredosLeitura()[0] ?? 'itsm-local';
+  }
+
+  private segredosLeitura() {
+    return segredosDeIntegracao({
+      INTEGRACOES_SECRET: this.config.get<string>('INTEGRACOES_SECRET'),
+      JWT_SECRET: this.config.get<string>('JWT_SECRET'),
+    });
+  }
+
+  /** Configuração em claro, só para conectores internos. Não exposta por nenhuma rota. */
+  async configuracaoEmClaro(idCliente: number, idIntegracao: number) {
+    const integracao = await this.prisma.integracoes.findFirst({
+      where: { id: idIntegracao, id_cliente: idCliente },
+    });
+    if (!integracao) throw new NotFoundException('Integração não encontrada');
+    return descriptografarConfig((integracao.configuracoes ?? {}) as Record<string, unknown>, this.segredosLeitura());
   }
 
   private conectar(host: string, port: number) {

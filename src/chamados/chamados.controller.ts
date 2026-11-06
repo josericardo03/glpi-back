@@ -67,8 +67,9 @@ export class ChamadosController {
     return this.chamados.atribuir(user, id, dto);
   }
 
+  // SOLICITANTE: o serviço restringe ao dono do chamado e às ações concluir/reabrir (RESOLVIDO).
   @Patch(':id/status')
-  @Roles('TECNICO')
+  @Roles('SOLICITANTE')
   status(
     @CurrentUser() user: AuthUser,
     @Param('id', ParseIntPipe) id: number,

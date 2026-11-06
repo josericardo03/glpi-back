@@ -69,6 +69,15 @@ export class AtribuirChamadoDto {
   @ValidateIf((_, value) => value !== undefined && value !== null)
   @IsInt()
   id_tecnico_atribuido?: number | null;
+
+  @Transform(({ value }) => {
+    if (value === undefined) return undefined;
+    if (value === null || value === '') return null;
+    return Number(value);
+  })
+  @ValidateIf((_, value) => value !== undefined && value !== null)
+  @IsInt()
+  id_grupo_responsavel?: number | null;
 }
 
 export class StatusChamadoDto {

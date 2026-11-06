@@ -3,9 +3,11 @@ import {
   IsDateString,
   IsIn,
   IsInt,
+  IsNumber,
   IsOptional,
   IsString,
   MaxLength,
+  Min,
   MinLength,
   ValidateIf,
 } from 'class-validator';
@@ -90,3 +92,33 @@ export class CreateRelacionamentoDto {
   tipo_relacionamento: 'DEPENDE_DE';
 }
 
+
+export class CreateEspecificacaoDto {
+  @IsString()
+  @MinLength(1)
+  @MaxLength(100)
+  chave: string;
+
+  @IsString()
+  @MinLength(1)
+  @MaxLength(255)
+  valor: string;
+}
+
+export class CreateManutencaoDto {
+  @IsString()
+  @MinLength(3)
+  descricao_servico: string;
+
+  @Type(() => Number)
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0)
+  custo_manutencao: number;
+
+  @IsDateString()
+  data_inicio: string;
+
+  @IsOptional()
+  @IsDateString()
+  data_fim?: string;
+}

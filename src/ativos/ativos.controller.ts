@@ -16,7 +16,13 @@ import type { Response } from 'express';
 import { CurrentUser } from '../auth/current-user.decorator.js';
 import { Roles } from '../auth/roles.js';
 import type { AuthUser } from '../auth/auth.types.js';
-import { CreateAtivoDto, CreateRelacionamentoDto, UpdateAtivoDto } from './dto/ativo.dto.js';
+import {
+  CreateAtivoDto,
+  CreateEspecificacaoDto,
+  CreateManutencaoDto,
+  CreateRelacionamentoDto,
+  UpdateAtivoDto,
+} from './dto/ativo.dto.js';
 import { AtivosService } from './ativos.service.js';
 
 @Controller()
@@ -74,5 +80,34 @@ export class AtivosController {
   @Roles('TECNICO')
   impacto(@CurrentUser() user: AuthUser, @Param('id', ParseIntPipe) id: number) {
     return this.ativos.impacto(user, id);
+  }
+
+  @Post('ativos/:id/especificacoes')
+  @Roles('TECNICO')
+  @HttpCode(HttpStatus.CREATED)
+  especificacao(
+    @CurrentUser() user: AuthUser,
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: CreateEspecificacaoDto,
+  ) {
+    return this.ativos.adicionarEspecificacao(user, id, dto);
+  }
+
+  @Post('ativos/:id/manutencoes')
+  @Roles('TECNICO')
+  @HttpCode(HttpStatus.CREATED)
+  manutencao(
+    @CurrentUser() user: AuthUser,
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: CreateManutencaoDto,
+  ) {
+    return this.ativos.registrarManutencao(user, id, dto);
+  }
+
+  // Declarada por último: o segmento dinâmico não pode capturar 'ativos/relacionamentos'.
+  @Get('ativos/:id')
+  @Roles('SOLICITANTE')
+  detalhe(@CurrentUser() user: AuthUser, @Param('id', ParseIntPipe) id: number) {
+    return this.ativos.detalhe(user, id);
   }
 }

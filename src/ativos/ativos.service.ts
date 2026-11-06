@@ -4,7 +4,14 @@ import type { AuthUser } from '../auth/auth.types.js';
 import { AuditService } from '../audit/audit.service.js';
 import { conflito } from '../common/conflito.js';
 import { PrismaService } from '../prisma/prisma.service.js';
-import { CreateAtivoDto, CreateRelacionamentoDto, UpdateAtivoDto } from './dto/ativo.dto.js';
+import { fatia } from '../common/paginacao.js';
+import {
+  CreateAtivoDto,
+  CreateEspecificacaoDto,
+  CreateManutencaoDto,
+  CreateRelacionamentoDto,
+  UpdateAtivoDto,
+} from './dto/ativo.dto.js';
 
 @Injectable()
 export class AtivosService {
@@ -222,6 +229,122 @@ export class AtivosService {
     return { ativo, afetados };
   }
 
+  async detalhe(user: AuthUser, id: number) {
+    const solicitante = user.perfil === 'SOLICITANTE';
+    const ponta = { id: true, nome: true, tipo_ativo: true, codigo_patrimonio: true } as const;
+    const ativo = await this.prisma.ativos_cmdb.findFirst({
+      where: { id, id_cliente: user.id_cliente, ...(solicitante ? { id_usuario_atribuido: user.id } : {}) },
+      include: {
+        usuarios: { select: { id: true, nome: true } },
+        especificacoes_ativos: { orderBy: { id: 'asc' } },
+        historicos_manutencao_ativos: {
+          orderBy: { data_inicio: 'desc' },
+          include: { usuarios: { select: { id: true, nome: true } } },
+        },
+        rels_como_origem: { include: { destino: { select: ponta } } },
+        rels_como_destino: { include: { origem: { select: ponta } } },
+        chamados_ativos: {
+          include: { chamados: { select: { id: true, titulo: true, status: true, id_solicitante: true } } },
+        },
+      },
+    });
+    if (!ativo) throw new NotFoundException('Ativo não encontrado');
+    const {
+      usuarios,
+      especificacoes_ativos,
+      historicos_manutencao_ativos,
+      rels_como_origem,
+      rels_como_destino,
+      chamados_ativos,
+      ...base
+    } = ativo;
+    return {
+      ...base,
+      usuario_atribuido: usuarios ? { id: usuarios.id, nome: usuarios.nome } : null,
+      especificacoes: especificacoes_ativos.map((e) => ({ id: e.id, chave: e.chave_propriedade, valor: e.valor })),
+      manutencoes: historicos_manutencao_ativos.map((m) => ({
+        id: m.id,
+        descricao_servico: m.descricao_servico,
+        custo_manutencao: Number(m.custo_manutencao),
+        data_inicio: m.data_inicio,
+        data_fim: m.data_fim,
+        tecnico: { id: m.usuarios.id, nome: m.usuarios.nome },
+      })),
+      // Este ativo depende do destino (DEPENDE_DE) e dá suporte à origem (SUPORTA).
+      dependencias: [
+        ...rels_como_origem.map((r) => ({ ...r.destino, relacao: 'DEPENDE_DE' as const })),
+        ...rels_como_destino.map((r) => ({ ...r.origem, relacao: 'SUPORTA' as const })),
+      ],
+      chamados: chamados_ativos
+        .map((v) => v.chamados)
+        .filter((c) => !solicitante || c.id_solicitante === user.id)
+        .map((c) => ({ id: c.id, titulo: c.titulo, status: c.status })),
+    };
+  }
+
+  async adicionarEspecificacao(user: AuthUser, id: number, dto: CreateEspecificacaoDto) {
+    await this.exigirAtivos(user.id_cliente, [id]);
+    try {
+      return await this.prisma.$transaction(async (tx) => {
+        const row = await tx.especificacoes_ativos.create({
+          data: {
+            id_cliente: user.id_cliente,
+            id_ativo: id,
+            chave_propriedade: dto.chave.trim(),
+            valor: dto.valor.trim(),
+          },
+        });
+        await this.audit.record(tx, {
+          id_cliente: user.id_cliente,
+          acao: 'ADD_ATIVO_ESPECIFICACAO',
+          tabela_afetada: 'especificacoes_ativos',
+          registro_id: row.id,
+          valor_anterior: null,
+          valor_novo: { id_ativo: id, chave: row.chave_propriedade },
+        });
+        return { id: row.id, chave: row.chave_propriedade, valor: row.valor };
+      });
+    } catch (error) {
+      throw conflito(error, 'Este ativo já tem uma especificação com essa chave');
+    }
+  }
+
+  async registrarManutencao(user: AuthUser, id: number, dto: CreateManutencaoDto) {
+    await this.exigirAtivos(user.id_cliente, [id]);
+    const inicio = new Date(dto.data_inicio);
+    const fim = dto.data_fim ? new Date(dto.data_fim) : null;
+    if (fim && fim < inicio) throw new BadRequestException('data_fim não pode ser anterior a data_inicio');
+    return this.prisma.$transaction(async (tx) => {
+      const row = await tx.historicos_manutencao_ativos.create({
+        data: {
+          id_cliente: user.id_cliente,
+          id_ativo: id,
+          id_tecnico: user.id,
+          descricao_servico: dto.descricao_servico.trim(),
+          custo_manutencao: dto.custo_manutencao,
+          data_inicio: inicio,
+          data_fim: fim,
+        },
+      });
+      await this.audit.record(tx, {
+        id_cliente: user.id_cliente,
+        acao: 'ADD_ATIVO_MANUTENCAO',
+        tabela_afetada: 'historicos_manutencao_ativos',
+        registro_id: row.id,
+        valor_anterior: null,
+        valor_novo: { id_ativo: id, custo_manutencao: dto.custo_manutencao },
+      });
+      return {
+        id: row.id,
+        descricao_servico: row.descricao_servico,
+        custo_manutencao: Number(row.custo_manutencao),
+        data_inicio: row.data_inicio,
+        data_fim: row.data_fim,
+        tecnico: { id: user.id, nome: user.nome },
+      };
+    });
+  }
+
   private async exigirUsuario(idCliente: number, id: number) {
     const usuario = await this.prisma.usuarios.findFirst({
       where: { id, id_cliente: idCliente },
@@ -265,12 +388,4 @@ function formatarRelacionamento(row: RelacionamentoComPontas) {
     origem: row.origem,
     destino: row.destino,
   };
-}
-
-function fatia(limite: string | undefined, pagina: string | undefined, padrao: number, teto: number) {
-  if (limite && !/^\d+$/.test(limite)) throw new BadRequestException('limite inválido');
-  if (pagina && !/^\d+$/.test(pagina)) throw new BadRequestException('pagina inválida');
-  const tamanho = Math.min(teto, Math.max(1, Number(limite) || padrao));
-  const paginaNum = Math.max(1, Number(pagina) || 1);
-  return { take: tamanho, skip: (paginaNum - 1) * tamanho };
 }

@@ -101,4 +101,39 @@ export class GruposService {
       throw conflito(error, 'Usuário já pertence a este grupo');
     }
   }
+
+  /**
+   * Membros de todos os grupos do tenant. A carga de trabalho (%) é a razão entre os chamados
+   * abertos do técnico e o limite  do vínculo, limitada a 100.
+   */
+  async listarMembros(user: AuthUser) {
+    const membros = await this.prisma.membros_grupos.findMany({
+      where: { id_cliente: user.id_cliente },
+      include: { usuarios: { select: { id: true, nome: true, email: true, cargo: true, avatar_url: true } } },
+      orderBy: [{ id_grupo: 'asc' }, { id: 'asc' }],
+    });
+    const abertos = await this.prisma.chamados.groupBy({
+      by: ['id_tecnico_atribuido'],
+      where: {
+        id_cliente: user.id_cliente,
+        status: { in: ['NOVO', 'EM_ATENDIMENTO', 'PENDENTE'] },
+        id_tecnico_atribuido: { in: [...new Set(membros.map((m) => m.id_usuario))] },
+      },
+      _count: { _all: true },
+    });
+    const porTecnico = new Map(abertos.map((a) => [a.id_tecnico_atribuido, a._count._all]));
+    return membros.map((m) => {
+      const total = porTecnico.get(m.id_usuario) ?? 0;
+      return {
+        id: m.id,
+        id_grupo: m.id_grupo,
+        id_usuario: m.id_usuario,
+        cargo_especialidade: m.cargo_especialidade,
+        carga_trabalho_max: m.carga_trabalho_max,
+        chamados_abertos: total,
+        carga_trabalho_pct: Math.min(100, Math.round((total * 100) / Math.max(1, m.carga_trabalho_max))),
+        usuario: m.usuarios,
+      };
+    });
+  }
 }

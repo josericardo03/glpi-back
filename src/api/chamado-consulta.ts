@@ -1,6 +1,9 @@
 import { BadRequestException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import type { AuthUser } from '../auth/auth.types.js';
+import { fatia } from '../common/paginacao.js';
+
+export { fatia };
 
 const STATUS = new Set(['NOVO', 'EM_ATENDIMENTO', 'PENDENTE', 'RESOLVIDO', 'CONCLUIDO']);
 const PRIORIDADES = new Set(['CRITICA', 'ALTA', 'MEDIA', 'BAIXA']);
@@ -142,14 +145,6 @@ export function ordemChamados(ordenar: string | undefined, padrao: 'asc' | 'desc
   if (campo === 'data_resolucao') return Prisma.sql`c.data_resolucao ${sentido} NULLS LAST, c.id DESC`;
   if (campo === 'status') return Prisma.sql`c.status ${sentido}, c.id DESC`;
   return Prisma.sql`c.id ${sentido}`;
-}
-
-export function fatia(limite: string | undefined, pagina: string | undefined, padrao: number, teto: number) {
-  const tamanho = Math.min(teto, Math.max(1, Number(limite) || padrao));
-  const paginaNum = Math.max(1, Number(pagina) || 1);
-  if (limite && !/^\d+$/.test(limite)) throw new BadRequestException('limite inválido');
-  if (pagina && !/^\d+$/.test(pagina)) throw new BadRequestException('pagina inválida');
-  return { take: tamanho, skip: (paginaNum - 1) * tamanho };
 }
 
 export function hojeCuiaba() {

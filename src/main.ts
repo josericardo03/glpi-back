@@ -31,6 +31,8 @@ async function bootstrap() {
   });
   app.getHttpAdapter().getInstance().use((_: Request, res: Response, next: NextFunction) => {
     res.setTimeout(60_000);
+    // Impede o navegador de reinterpretar o tipo dos anexos baixados.
+    res.setHeader('X-Content-Type-Options', 'nosniff');
     next();
   });
   app.useGlobalPipes(

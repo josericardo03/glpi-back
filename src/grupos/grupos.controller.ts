@@ -1,4 +1,4 @@
-import { Body, Controller, HttpCode, HttpStatus, Param, ParseIntPipe, Patch, Post } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, HttpStatus, Param, ParseIntPipe, Patch, Post } from '@nestjs/common';
 import { CurrentUser } from '../auth/current-user.decorator.js';
 import { Roles } from '../auth/roles.js';
 import type { AuthUser } from '../auth/auth.types.js';
@@ -8,6 +8,12 @@ import { GruposService } from './grupos.service.js';
 @Controller()
 export class GruposController {
   constructor(private readonly grupos: GruposService) {}
+
+  @Get('grupos-suporte/membros')
+  @Roles('GESTOR')
+  membros(@CurrentUser() user: AuthUser) {
+    return this.grupos.listarMembros(user);
+  }
 
   @Post('grupos-suporte')
   @Roles('GESTOR')

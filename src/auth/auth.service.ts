@@ -1,4 +1,5 @@
 import {
+  ConflictException,
   ForbiddenException,
   HttpException,
   HttpStatus,
@@ -48,25 +49,39 @@ export class AuthService {
         ...(dto.id_cliente !== undefined ? { id_cliente: dto.id_cliente } : {}),
       },
       include: { clientes: true },
-      take: 3,
+      take: 10,
     });
 
-    const ambiguo = !dto.id_cliente && candidatos.length > 1;
-    const usuario = ambiguo ? undefined : candidatos[0];
+    const ativo = (c: (typeof candidatos)[number]) => c.status === 'ATIVO' && c.clientes.status === 'ATIVO';
+    let usuario: (typeof candidatos)[number] | undefined;
 
-    const hash = usuario?.senha_hash ?? BCRYPT_DUMMY;
-    const senhaOk = await this.verificarSenha(dto.password, hash);
-
-    if (
-      ambiguo ||
-      !usuario ||
-      !senhaOk ||
-      usuario.status !== 'ATIVO' ||
-      usuario.clientes.status !== 'ATIVO'
-    ) {
-      throw new UnauthorizedException('Credenciais inválidas');
+    if (dto.id_cliente === undefined && candidatos.length > 1) {
+      // O e-mail existe em mais de um cliente. A senha é conferida em cada um e só os clientes
+      // em que ela confere são revelados, então não há como descobrir clientes sem saber a senha.
+      const aceitos: typeof candidatos = [];
+      for (const candidato of candidatos) {
+        if (ativo(candidato) && (await this.verificarSenha(dto.password, candidato.senha_hash))) {
+          aceitos.push(candidato);
+        }
+      }
+      if (aceitos.length === 0) throw new UnauthorizedException('Credenciais inválidas');
+      if (aceitos.length > 1) {
+        throw new ConflictException({
+          statusCode: 409,
+          message: 'Este e-mail pertence a mais de um cliente. Informe o cliente.',
+          clientes: aceitos.map(({ clientes }) => ({ id: clientes.id, nome: clientes.nome_fantasia })),
+        });
+      }
+      usuario = aceitos[0];
+    } else {
+      usuario = candidatos[0];
+      const senhaOk = await this.verificarSenha(dto.password, usuario?.senha_hash ?? BCRYPT_DUMMY);
+      if (!usuario || !senhaOk || !ativo(usuario)) {
+        throw new UnauthorizedException('Credenciais inválidas');
+      }
     }
 
+    if (!usuario) throw new UnauthorizedException('Credenciais inválidas');
     const perfil = this.assertPerfil(usuario.perfil);
     const payload: JwtPayload = {
       sub: usuario.id,
