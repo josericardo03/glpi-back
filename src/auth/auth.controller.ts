@@ -11,6 +11,7 @@ import {
   Post,
   Req,
   Res,
+  UnauthorizedException,
 } from '@nestjs/common';
 import type { Request, Response } from 'express';
 import { AuthService } from './auth.service.js';
@@ -91,7 +92,8 @@ export class AuthController {
     const token = lerCookie(req, COOKIE_REFRESH);
     if (!token) {
       limparCookie(res, req);
-      return res.status(HttpStatus.UNAUTHORIZED).json({ statusCode: 401, message: 'Sem sessão' });
+      // Com passthrough o Nest ainda serializa o valor retornado: devolver `res.json()` (o próprio res) quebra.
+      throw new UnauthorizedException('Sem sessão');
     }
     try {
       const { refresh_token, ...resposta } = await this.auth.refresh(token, contexto(req));
