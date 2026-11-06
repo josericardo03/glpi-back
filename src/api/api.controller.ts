@@ -9,6 +9,7 @@ import {
   Query,
   Res,
 } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import type { Response } from 'express';
 import { mascararConfig } from '../admin/segredo.js';
 import { CurrentUser } from '../auth/current-user.decorator.js';
@@ -46,38 +47,70 @@ export class ApiController {
   }
 
   @Get('usuarios')
-  usuarios(
+  async usuarios(
     @CurrentUser() user: AuthUser,
-    @Query('limite') limite?: string,
-    @Query('pagina') pagina?: string,
+    @Query('limite') limite: string | undefined,
+    @Query('pagina') pagina: string | undefined,
+    @Query('busca') busca: string | undefined,
+    @Query('perfil') perfil: string | undefined,
+    @Query('status') status: string | undefined,
+    @Query('id_departamento') idDepartamento: string | undefined,
+    @Res({ passthrough: true }) res: Response,
   ) {
     if (user.perfil === 'SOLICITANTE') {
-      return this.prisma.usuarios.findMany({
-        where: { id_cliente: user.id_cliente, perfil: { in: ['GESTOR', 'ADMIN'] } },
-        select: { id: true, nome: true, perfil: true },
-        orderBy: [{ nome: 'asc' }, { id: 'asc' }],
-        ...fatia(limite, pagina, 100, 200),
-      });
+      const where = { id_cliente: user.id_cliente, perfil: { in: ['GESTOR', 'ADMIN'] } };
+      const [rows, total] = await Promise.all([
+        this.prisma.usuarios.findMany({
+          where,
+          select: { id: true, nome: true, perfil: true },
+          orderBy: [{ nome: 'asc' }, { id: 'asc' }],
+          ...fatia(limite, pagina, 100, 200),
+        }),
+        this.prisma.usuarios.count({ where }),
+      ]);
+      res.setHeader('X-Total-Count', String(total));
+      return rows;
     }
-    return this.prisma.usuarios.findMany({
-      where: this.tenant(user),
-      // Sem ordenação, a paginação por skip/take pode repetir ou omitir usuários entre páginas.
-      orderBy: { id: 'asc' },
-      ...fatia(limite, pagina, 100, 200),
-      select: {
-        id: true,
-        id_cliente: true,
-        nome: true,
-        email: true,
-        cargo: true,
-        perfil: true,
-        status: true,
-        id_departamento: true,
-        avatar_url: true,
-        data_cadastro: true,
-        ultimo_login: true,
-      },
-    });
+    if (idDepartamento && !/^d+$/.test(idDepartamento)) throw new BadRequestException('id_departamento inválido');
+    const termo = busca?.trim().slice(0, 100);
+    const where: Prisma.usuariosWhereInput = {
+      ...this.tenant(user),
+      ...(perfil ? { perfil: perfil.slice(0, 30) } : {}),
+      ...(status ? { status: status.slice(0, 30) } : {}),
+      ...(idDepartamento ? { id_departamento: Number(idDepartamento) } : {}),
+      ...(termo
+        ? {
+            OR: [
+              { nome: { contains: termo, mode: 'insensitive' } },
+              { email: { contains: termo, mode: 'insensitive' } },
+            ],
+          }
+        : {}),
+    };
+    const [rows, total] = await Promise.all([
+      this.prisma.usuarios.findMany({
+        where,
+        // Sem ordenação, a paginação por skip/take pode repetir ou omitir usuários entre páginas.
+        orderBy: { id: 'asc' },
+        ...fatia(limite, pagina, 100, 200),
+        select: {
+          id: true,
+          id_cliente: true,
+          nome: true,
+          email: true,
+          cargo: true,
+          perfil: true,
+          status: true,
+          id_departamento: true,
+          avatar_url: true,
+          data_cadastro: true,
+          ultimo_login: true,
+        },
+      }),
+      this.prisma.usuarios.count({ where }),
+    ]);
+    res.setHeader('X-Total-Count', String(total));
+    return rows;
   }
 
   @Get('departamentos')

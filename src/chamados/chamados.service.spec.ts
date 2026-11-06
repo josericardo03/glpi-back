@@ -1,3 +1,6 @@
+/** Qualquer método de evento vira um espião que não faz nada. */
+const EVENTOS_FALSOS = new Proxy({}, { get: () => vi.fn() });
+
 import { ConflictException, ForbiddenException, NotFoundException } from '@nestjs/common';
 import type { AuthUser } from '../auth/auth.types.js';
 import { ChamadosService } from './chamados.service.js';
@@ -24,7 +27,9 @@ describe('ChamadosService: anexos de notas internas', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     prisma.chamados.findFirst.mockResolvedValue({ id: 10, id_cliente: 1, id_solicitante: 7 });
-    service = new ChamadosService(prisma as never, {} as never, {} as never, {} as never);
+    // O storage devolve o conteúdo do anexo (banco ou disco, conforme o driver); aqui basta devolver os bytes.
+    const storage = { carregar: vi.fn(async (a: { conteudo?: Buffer }) => a.conteudo ?? Buffer.alloc(0)) };
+    service = new ChamadosService(prisma as never, {} as never, {} as never, storage as never, EVENTOS_FALSOS as never);
   });
 
   it('o solicitante não baixa anexo de comentário INTERNO', async () => {
@@ -37,13 +42,13 @@ describe('ChamadosService: anexos de notas internas', () => {
     const anexo = { id: 5, id_comentario: 3, conteudo: Buffer.from('x') };
     prisma.anexos_chamados.findFirst.mockResolvedValue(anexo);
     prisma.comentarios_chamados.findFirst.mockResolvedValue({ tipo_visibilidade: 'PUBLICO' });
-    await expect(service.baixar(solicitante, 10, 5)).resolves.toBe(anexo);
+    await expect(service.baixar(solicitante, 10, 5)).resolves.toEqual(anexo);
   });
 
   it('o técnico baixa anexo de nota interna sem consultar a visibilidade', async () => {
     const anexo = { id: 5, id_comentario: 3, conteudo: Buffer.from('x') };
     prisma.anexos_chamados.findFirst.mockResolvedValue(anexo);
-    await expect(service.baixar(tecnico, 10, 5)).resolves.toBe(anexo);
+    await expect(service.baixar(tecnico, 10, 5)).resolves.toEqual(anexo);
     expect(prisma.comentarios_chamados.findFirst).not.toHaveBeenCalled();
   });
 
@@ -83,7 +88,7 @@ describe('ChamadosService: ciclo de vida e concorrência', () => {
     vi.clearAllMocks();
     prisma.chamados.findFirst.mockResolvedValue(resolvido);
     prisma.historico_status_chamados.findFirst.mockResolvedValue(null);
-    service = new ChamadosService(prisma as never, {} as never, audit as never, {} as never);
+    service = new ChamadosService(prisma as never, {} as never, audit as never, {} as never, EVENTOS_FALSOS as never);
   });
 
   it('o solicitante não muda o status de um chamado que não está resolvido', async () => {

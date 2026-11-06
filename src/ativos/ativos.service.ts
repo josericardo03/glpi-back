@@ -20,6 +20,23 @@ export class AtivosService {
     private readonly audit: AuditService,
   ) {}
 
+  /** Totais do inventário para os cartões da tela (a lista em si é paginada no servidor). */
+  async resumo(user: AuthUser) {
+    const where = {
+      id_cliente: user.id_cliente,
+      ...(user.perfil === 'SOLICITANTE' ? { id_usuario_atribuido: user.id } : {}),
+    };
+    const [porTipo, porStatus] = await Promise.all([
+      this.prisma.ativos_cmdb.groupBy({ by: ['tipo_ativo'], where, _count: { _all: true } }),
+      this.prisma.ativos_cmdb.groupBy({ by: ['status'], where, _count: { _all: true } }),
+    ]);
+    return {
+      total: porTipo.reduce((soma, r) => soma + r._count._all, 0),
+      por_tipo: Object.fromEntries(porTipo.map((r) => [r.tipo_ativo, r._count._all])),
+      por_status: Object.fromEntries(porStatus.map((r) => [r.status, r._count._all])),
+    };
+  }
+
   async criar(user: AuthUser, dto: CreateAtivoDto) {
     if (dto.id_usuario_atribuido) {
       const usuario = await this.prisma.usuarios.findFirst({

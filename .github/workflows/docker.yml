@@ -57,11 +57,15 @@ jobs:
           SEED_ADMIN_PASSWORD: ${{ secrets.SEED_ADMIN_PASSWORD }}
           SEED_ADMIN_EMAIL: ${{ vars.SEED_ADMIN_EMAIL }}
           JWT_EXPIRES_IN: ${{ vars.JWT_EXPIRES_IN }}
+          APP_URL: ${{ vars.APP_URL }}
+          CORS_ORIGIN: ${{ vars.CORS_ORIGIN }}
+          INTEGRACOES_SECRET: ${{ secrets.INTEGRACOES_SECRET }}
+          METRICS_TOKEN: ${{ secrets.METRICS_TOKEN }}
         with:
           host: ${{ vars.DEPLOY_HOST }}
           username: ${{ vars.DEPLOY_USER }}
           key: ${{ secrets.DEPLOY_SSH_KEY }}
-          envs: GHCR_TOKEN,GITHUB_TOKEN,POSTGRES_PASSWORD,JWT_SECRET,SEED_ADMIN_PASSWORD,SEED_ADMIN_EMAIL,JWT_EXPIRES_IN
+          envs: GHCR_TOKEN,GITHUB_TOKEN,POSTGRES_PASSWORD,JWT_SECRET,SEED_ADMIN_PASSWORD,SEED_ADMIN_EMAIL,JWT_EXPIRES_IN,APP_URL,CORS_ORIGIN,INTEGRACOES_SECRET,METRICS_TOKEN
           script: |
             set -e
             cd "${{ vars.DEPLOY_PATH || '/opt/glpi-front' }}"
@@ -69,9 +73,13 @@ jobs:
             cat > .env << EOF
             POSTGRES_PASSWORD=$POSTGRES_PASSWORD
             JWT_SECRET=$JWT_SECRET
-            JWT_EXPIRES_IN=${JWT_EXPIRES_IN:-8h}
+            JWT_EXPIRES_IN=${JWT_EXPIRES_IN:-15m}
             SEED_ADMIN_EMAIL=${SEED_ADMIN_EMAIL:-admin@itsm.local}
             SEED_ADMIN_PASSWORD=$SEED_ADMIN_PASSWORD
+            APP_URL=$APP_URL
+            CORS_ORIGIN=$CORS_ORIGIN
+            INTEGRACOES_SECRET=$INTEGRACOES_SECRET
+            METRICS_TOKEN=$METRICS_TOKEN
             EOF
             TOKEN="$GHCR_TOKEN"
             if [ -z "$TOKEN" ]; then TOKEN="$GITHUB_TOKEN"; fi

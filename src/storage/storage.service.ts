@@ -1,4 +1,6 @@
-import { BadRequestException, Injectable, PayloadTooLargeException } from '@nestjs/common';
+import { mkdir, readFile, unlink, writeFile } from 'node:fs/promises';
+import { dirname, resolve, sep } from 'node:path';
+import { BadRequestException, Injectable, Logger, NotFoundException, PayloadTooLargeException } from '@nestjs/common';
 
 export type ArquivoUpload = {
   buffer: Buffer;
@@ -9,8 +11,57 @@ export type ArquivoUpload = {
 
 const LIMITE = 20 * 1024 * 1024;
 
+/**
+ * Onde o conteúdo dos anexos fica: `postgres` (coluna BYTEA, o padrão) ou `disco` (arquivos em `ANEXOS_DIR`,
+ * pensado para um volume). Cada anexo guarda no `caminho_storage` o prefixo do seu driver, então os dois
+ * modos convivem: trocar a variável só afeta os anexos novos.
+ */
+const prefixoDoModo = () => (process.env.ANEXOS_STORAGE === 'disco' ? 'disco' : 'postgres');
+
 @Injectable()
 export class StorageService {
+  private readonly logger = new Logger(StorageService.name);
+
+  private absoluto(caminho: string) {
+    const base = resolve(process.env.ANEXOS_DIR ?? './storage');
+    const alvo = resolve(base, caminho.slice('disco://'.length));
+    // Os nomes já vêm saneados, mas a barreira final fica aqui: nunca sair de ANEXOS_DIR.
+    if (!alvo.startsWith(base + sep)) throw new BadRequestException('Caminho de anexo inválido');
+    return alvo;
+  }
+
+  /** Grava o conteúdo no driver do caminho. Devolve o que vai para a coluna `conteudo` (nada, no modo disco). */
+  async persistir(caminho: string, conteudo: Buffer): Promise<Uint8Array<ArrayBuffer> | null> {
+    if (!caminho.startsWith('disco://')) return new Uint8Array(conteudo);
+    const arquivo = this.absoluto(caminho);
+    await mkdir(dirname(arquivo), { recursive: true });
+    await writeFile(arquivo, conteudo, { flag: 'wx' });
+    return null;
+  }
+
+  /** Lê o conteúdo de um anexo, de onde ele estiver. */
+  async carregar(anexo: { caminho_storage: string; conteudo: Uint8Array | null }): Promise<Buffer> {
+    if (anexo.caminho_storage.startsWith('disco://')) {
+      try {
+        return await readFile(this.absoluto(anexo.caminho_storage));
+      } catch {
+        throw new NotFoundException('Arquivo não encontrado no armazenamento');
+      }
+    }
+    if (!anexo.conteudo) throw new NotFoundException('Anexo não encontrado');
+    return Buffer.from(anexo.conteudo);
+  }
+
+  /** Apaga o arquivo do disco (se o anexo for de disco). Falha não interrompe: sobra um arquivo órfão. */
+  async descartar(caminho: string) {
+    if (!caminho.startsWith('disco://')) return;
+    try {
+      await unlink(this.absoluto(caminho));
+    } catch (erro) {
+      this.logger.warn(`Arquivo ${caminho} não removido: ${erro instanceof Error ? erro.message : String(erro)}`);
+    }
+  }
+
   validar(idCliente: number, idChamado: number, file: ArquivoUpload) {
     if (!file?.buffer?.length) {
       throw new BadRequestException('Arquivo vazio');
@@ -28,7 +79,7 @@ export class StorageService {
     }
     return {
       nome_arquivo: nome,
-      caminho_storage: `postgres://${idCliente}/${idChamado}/${Date.now()}-${nome}`,
+      caminho_storage: `${prefixoDoModo()}://${idCliente}/${idChamado}/${Date.now()}-${nome}`,
       tipo_mime: tipo.mime,
       tamanho_bytes: file.size,
       conteudo: file.buffer,
@@ -51,7 +102,7 @@ export class StorageService {
       .slice(0, 120);
     return {
       nome_arquivo: nome,
-      caminho_storage: `postgres://${idCliente}/artigos-kb/${idArtigo}/${Date.now()}-${nome}`,
+      caminho_storage: `${prefixoDoModo()}://${idCliente}/artigos-kb/${idArtigo}/${Date.now()}-${nome}`,
       tipo_mime: tipo,
       tamanho_bytes: file.size,
       conteudo: file.buffer,

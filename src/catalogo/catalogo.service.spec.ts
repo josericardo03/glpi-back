@@ -1,3 +1,6 @@
+/** Qualquer método de evento vira um espião que não faz nada. */
+const EVENTOS_FALSOS = new Proxy({}, { get: () => vi.fn() });
+
 import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
 import type { AuthUser } from '../auth/auth.types.js';
 import { CatalogoService } from './catalogo.service.js';
@@ -30,7 +33,7 @@ describe('CatalogoService', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    service = new CatalogoService(prisma as never, audit as never);
+    service = new CatalogoService(prisma as never, audit as never, EVENTOS_FALSOS as never);
   });
 
   describe('criarAprovacao', () => {

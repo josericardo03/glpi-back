@@ -43,3 +43,48 @@ describe('StorageService.validar (anexos de chamado)', () => {
     expect(r.nome_arquivo.endsWith('.txt')).toBe(true);
   });
 });
+
+describe('StorageService: modo disco', () => {
+  let pasta: string;
+  const storage = new StorageService();
+
+  beforeEach(async () => {
+    const { mkdtemp } = await import('node:fs/promises');
+    const { tmpdir } = await import('node:os');
+    const { join } = await import('node:path');
+    pasta = await mkdtemp(join(tmpdir(), 'anexos-'));
+    process.env.ANEXOS_STORAGE = 'disco';
+    process.env.ANEXOS_DIR = pasta;
+  });
+
+  afterEach(async () => {
+    delete process.env.ANEXOS_STORAGE;
+    delete process.env.ANEXOS_DIR;
+    const { rm } = await import('node:fs/promises');
+    await rm(pasta, { recursive: true, force: true });
+  });
+
+  it('usa o prefixo disco:// nos anexos novos', () => {
+    const r = storage.validar(1, 2, { buffer: Buffer.from('oi'), originalname: 'a.txt', mimetype: 'text/plain', size: 2 });
+    expect(r.caminho_storage).toMatch(/^disco:\/\/1\/2\/\d+-a\.txt$/);
+  });
+
+  it('grava em arquivo, não devolve conteúdo para o banco e lê de volta', async () => {
+    const r = storage.validar(1, 2, { buffer: Buffer.from('conteudo'), originalname: 'a.txt', mimetype: 'text/plain', size: 8 });
+    expect(await storage.persistir(r.caminho_storage, r.conteudo)).toBeNull();
+    const lido = await storage.carregar({ caminho_storage: r.caminho_storage, conteudo: null });
+    expect(lido.toString()).toBe('conteudo');
+    await storage.descartar(r.caminho_storage);
+    await expect(storage.carregar({ caminho_storage: r.caminho_storage, conteudo: null })).rejects.toMatchObject({ status: 404 });
+  });
+
+  it('anexos antigos (postgres://) continuam lidos do banco', async () => {
+    const lido = await storage.carregar({ caminho_storage: 'postgres://1/2/1-a.txt', conteudo: new Uint8Array(Buffer.from('antigo')) });
+    expect(lido.toString()).toBe('antigo');
+  });
+
+  it('nunca sai da pasta de anexos (path traversal)', async () => {
+    await expect(storage.persistir('disco://../../fora.txt', Buffer.from('x'))).rejects.toBeInstanceOf(BadRequestException);
+    await expect(storage.carregar({ caminho_storage: 'disco://../../etc/passwd', conteudo: null })).rejects.toBeDefined();
+  });
+});

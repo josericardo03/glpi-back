@@ -8,6 +8,7 @@ import {
 import { Prisma } from '@prisma/client';
 import type { AuthUser } from '../auth/auth.types.js';
 import { AuditService } from '../audit/audit.service.js';
+import { EventosService } from '../integracoes/eventos.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { SlaService } from '../sla/sla.service.js';
 import { StorageService, type ArquivoUpload } from '../storage/storage.service.js';
@@ -39,6 +40,7 @@ export class ChamadosService {
     private readonly sla: SlaService,
     private readonly audit: AuditService,
     private readonly storage: StorageService,
+    private readonly eventos: EventosService,
   ) {}
 
   async abrir(user: AuthUser, dto: CreateChamadoDto) {
@@ -101,6 +103,8 @@ export class ChamadosService {
       return chamado;
     });
 
+    void this.eventos.chamadoAberto(criado, user.id);
+
     return {
       id: criado.id,
       id_cliente: criado.id_cliente,
@@ -135,7 +139,7 @@ export class ChamadosService {
       });
       if (!tecnico) throw new NotFoundException('Técnico não encontrado');
     }
-    return this.prisma.$transaction(async (tx) => {
+    const atribuido = await this.prisma.$transaction(async (tx) => {
       const row = await tx.chamados.update({
         where: { id_cliente_id: { id_cliente: user.id_cliente, id } },
         data: {
@@ -166,6 +170,10 @@ export class ChamadosService {
       });
       return row;
     });
+    if (atribuido.id_tecnico_atribuido !== chamado.id_tecnico_atribuido) {
+      void this.eventos.chamadoAtribuido({ ...chamado, id_tecnico_atribuido: atribuido.id_tecnico_atribuido }, user.id);
+    }
+    return atribuido;
   }
 
   async mudarStatus(user: AuthUser, id: number, dto: StatusChamadoDto) {
@@ -271,6 +279,8 @@ export class ChamadosService {
       return saved;
     });
 
+    void this.eventos.statusAlterado({ ...chamado, status: atualizado.status }, chamado.status, atualizado.status, user.id);
+
     return {
       id: atualizado.id,
       status_anterior: chamado.status,
@@ -307,10 +317,18 @@ export class ChamadosService {
       });
       return row;
     });
+    void this.eventos.comentario(chamado, user.id, user.nome, visibilidade === 'INTERNO', dto.mensagem);
     return comentario;
   }
 
   async pausar(user: AuthUser, id: number, dto: PausaDto) {
+    const resultado = await this.executarPausa(user, id, dto);
+    const chamado = await this.prisma.chamados.findFirst({ where: { id, id_cliente: user.id_cliente } });
+    if (chamado) void this.eventos.statusAlterado(chamado, resultado.status_anterior, 'PENDENTE', user.id, dto.motivo_pausa);
+    return resultado;
+  }
+
+  private async executarPausa(user: AuthUser, id: number, dto: PausaDto) {
     const chamado = await this.obter(user, id, false);
     if (!['NOVO', 'EM_ATENDIMENTO'].includes(chamado.status)) {
       throw new BadRequestException('Só é possível pausar chamado novo ou em atendimento');
@@ -371,6 +389,13 @@ export class ChamadosService {
   }
 
   async retomar(user: AuthUser, id: number) {
+    const resultado = await this.executarRetomada(user, id);
+    const chamado = await this.prisma.chamados.findFirst({ where: { id, id_cliente: user.id_cliente } });
+    if (chamado) void this.eventos.statusAlterado(chamado, 'PENDENTE', 'EM_ATENDIMENTO', user.id);
+    return resultado;
+  }
+
+  private async executarRetomada(user: AuthUser, id: number) {
     const chamado = await this.obter(user, id, false);
     const pausa = await this.pausaAberta(user.id_cliente, id);
     if (!pausa || chamado.status !== 'PENDENTE') {
@@ -504,6 +529,7 @@ export class ChamadosService {
       }
     }
     const salvo = this.storage.validar(user.id_cliente, id, file);
+    const conteudoNoBanco = await this.storage.persistir(salvo.caminho_storage, salvo.conteudo);
     try {
       return await this.prisma.$transaction(async (tx) => {
         const anexo = await tx.anexos_chamados.create({
@@ -515,7 +541,7 @@ export class ChamadosService {
             caminho_storage: salvo.caminho_storage,
             tipo_mime: salvo.tipo_mime,
             tamanho_bytes: salvo.tamanho_bytes,
-            conteudo: new Uint8Array(salvo.conteudo),
+            conteudo: conteudoNoBanco,
           },
           select: {
             id: true,
@@ -543,6 +569,7 @@ export class ChamadosService {
         return { ...anexo, tamanho_bytes: Number(anexo.tamanho_bytes) };
       });
     } catch (error) {
+      await this.storage.descartar(salvo.caminho_storage);
       throw this.traduzir(error);
     }
   }
@@ -552,7 +579,7 @@ export class ChamadosService {
     const anexo = await this.prisma.anexos_chamados.findFirst({
       where: { id: anexoId, id_cliente: user.id_cliente, id_chamado: id },
     });
-    if (!anexo?.conteudo) throw new NotFoundException('Anexo não encontrado');
+    if (!anexo) throw new NotFoundException('Anexo não encontrado');
     if (user.perfil === 'SOLICITANTE' && anexo.id_comentario != null) {
       // Anexo de nota interna não pode ser baixado pelo solicitante (a listagem já o oculta).
       const comentario = await this.prisma.comentarios_chamados.findFirst({
@@ -561,7 +588,7 @@ export class ChamadosService {
       });
       if (comentario?.tipo_visibilidade === 'INTERNO') throw new NotFoundException('Anexo não encontrado');
     }
-    return anexo;
+    return { ...anexo, conteudo: await this.storage.carregar(anexo) };
   }
 
   async vincularAtivo(user: AuthUser, id: number, dto: AtivoChamadoDto) {

@@ -10,7 +10,11 @@ import bcrypt from 'bcrypt';
 import net from 'node:net';
 import { inicioCuiaba, somarDias } from '../api/chamado-consulta.js';
 import type { AuthUser } from '../auth/auth.types.js';
+import { exigirSenhaForte } from '../auth/senha.js';
 import { AuditService } from '../audit/audit.service.js';
+import { EmailService } from '../integracoes/email.service.js';
+import { destinoPermitido } from '../integracoes/rede.js';
+import { WebhookService } from '../integracoes/webhook.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import {
   BrandingAdminDto,
@@ -26,6 +30,7 @@ import {
   FiltroAuditoriaDto,
   UpdateFeriadoDto,
   UpdateHorarioDto,
+  UpdateIntegracaoDto,
   UpdatePoliticaDto,
   UpdateUsuarioAdminDto,
 } from './dto/admin.dto.js';
@@ -49,6 +54,8 @@ export class AdminService {
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     private readonly config: ConfigService,
+    private readonly email: EmailService,
+    private readonly webhook: WebhookService,
   ) {}
 
   async criarCliente(user: AuthUser, dto: CreateClienteDto) {
@@ -175,10 +182,15 @@ export class AdminService {
             perfil: dto.perfil,
             status: dto.status,
             id_departamento: dto.id_departamento,
-            ...(senhaHash ? { senha_hash: senhaHash } : {}),
+            // Nova senha ou desativação: sobe a versão e encerra as sessões do usuário na hora.
+            ...(senhaHash ? { senha_hash: senhaHash, senha_alterada_em: new Date() } : {}),
+            ...(senhaHash || (dto.status && dto.status !== 'ATIVO') ? { token_versao: { increment: 1 } } : {}),
           },
           select: usuarioPublico,
         });
+        if (senhaHash || (dto.status && dto.status !== 'ATIVO')) {
+          await tx.sessoes.updateMany({ where: { id_cliente: user.id_cliente, id_usuario: id, revogado_em: null }, data: { revogado_em: new Date() } });
+        }
         await this.audit.record(tx, {
           id_cliente: user.id_cliente,
           acao: 'UPDATE_USER',
@@ -202,6 +214,28 @@ export class AdminService {
     } catch (error) {
       throw this.traduzir(error, 'E-mail já cadastrado neste tenant');
     }
+  }
+
+  /** Destrava quem perdeu o aparelho e os códigos de recuperação: desliga o MFA e encerra as sessões dele. */
+  async resetarMfa(user: AuthUser, id: number) {
+    const atual = await this.prisma.usuarios.findFirst({ where: { id, id_cliente: user.id_cliente }, select: { id: true, mfa_ativo: true } });
+    if (!atual) throw new NotFoundException('Usuário não encontrado');
+    await this.prisma.$transaction(async (tx) => {
+      await tx.usuarios.update({
+        where: { id_cliente_id: { id_cliente: user.id_cliente, id } },
+        data: { mfa_ativo: false, mfa_segredo: null, mfa_ultimo_passo: null, mfa_codigos_hash: [], token_versao: { increment: 1 } },
+      });
+      await tx.sessoes.updateMany({ where: { id_cliente: user.id_cliente, id_usuario: id, revogado_em: null }, data: { revogado_em: new Date() } });
+      await this.audit.record(tx, {
+        id_cliente: user.id_cliente,
+        acao: 'MFA_RESET',
+        tabela_afetada: 'usuarios',
+        registro_id: id,
+        valor_anterior: { mfa_ativo: atual.mfa_ativo },
+        valor_novo: { mfa_ativo: false },
+      });
+    });
+    return { resetado: true };
   }
 
   async criarGrupo(user: AuthUser, dto: CreateGrupoAdminDto) {
@@ -450,6 +484,8 @@ export class AdminService {
     if (Array.isArray(dto.configuracoes)) {
       throw new BadRequestException('configuracoes deve ser um objeto');
     }
+    this.validarConfiguracao(dto.tipo, dto.configuracoes);
+    await this.exigeSmtpAtivoUnico(user.id_cliente, dto.tipo, dto.status ?? 'ATIVO');
     const cifrado = criptografarConfig(dto.configuracoes, this.segredo());
     try {
       const row = await this.prisma.$transaction(async (tx) => {
@@ -485,23 +521,50 @@ export class AdminService {
     }
   }
 
+  /** Cada tipo é testado do seu jeito: SMTP autentica e envia um e-mail de teste; webhook recebe um evento. */
   async testarIntegracao(user: AuthUser, id: number) {
     const integracao = await this.prisma.integracoes.findFirst({
       where: { id, id_cliente: user.id_cliente },
     });
     if (!integracao) throw new NotFoundException('Integração não encontrada');
     const config = (integracao.configuracoes ?? {}) as Record<string, unknown>;
-    const host = typeof config.host === 'string' ? config.host : '';
-    const port = Number(config.port);
     let status: 'SUCESSO' | 'FALHA' = 'FALHA';
-    let dadosLog = 'Host ou porta ausentes na configuração';
-    if (host && Number.isInteger(port) && port > 0 && port <= 65535) {
-      try {
-        await this.conectar(host, port);
-        status = 'SUCESSO';
-        dadosLog = `Conexão TCP com ${host}:${port} estabelecida`;
-      } catch (error) {
-        dadosLog = error instanceof Error ? error.message : 'Falha de conexão';
+    let dadosLog = 'Configuração incompleta';
+
+    if (integracao.tipo === 'SMTP') {
+      const verificacao = await this.email.verificar(user.id_cliente, id);
+      if (!verificacao.ok) {
+        dadosLog = verificacao.erro;
+      } else {
+        const envio = await this.email.enviar(user.id_cliente, user.email, 'Teste de e-mail do portal ITSM', 'Se você recebeu esta mensagem, o envio de e-mails está funcionando.', {
+          idIntegracao: id,
+          ignorarPreferencia: true,
+        });
+        status = envio.ok ? 'SUCESSO' : 'FALHA';
+        dadosLog = envio.ok ? `Autenticação SMTP ok. E-mail de teste enviado para ${user.email}` : envio.erro;
+      }
+    } else if (integracao.tipo === 'WEBHOOK') {
+      const entrega = await this.webhook.testar(user.id_cliente, id);
+      status = entrega.ok ? 'SUCESSO' : 'FALHA';
+      dadosLog = entrega.ok ? `Evento de teste entregue (HTTP ${entrega.status})` : entrega.erro;
+    } else {
+      const host = typeof config.host === 'string' ? config.host : '';
+      const port = Number(config.port);
+      if (host && Number.isInteger(port) && port > 0 && port <= 65535) {
+        const destino = await destinoPermitido(host);
+        if (!destino.ok) {
+          dadosLog = destino.motivo;
+        } else {
+          try {
+            await this.conectar(host, port);
+            status = 'SUCESSO';
+            dadosLog = `Conexão TCP com ${host}:${port} estabelecida`;
+          } catch (error) {
+            dadosLog = error instanceof Error ? error.message : 'Falha de conexão';
+          }
+        }
+      } else {
+        dadosLog = 'Host ou porta ausentes na configuração';
       }
     }
     return this.prisma.$transaction(async (tx) => {
@@ -511,7 +574,7 @@ export class AdminService {
           id_integracao: id,
           tipo_evento: 'TESTE_CONECTIVIDADE',
           status,
-          dados_log: dadosLog,
+          dados_log: dadosLog.slice(0, 1000),
         },
       });
       await this.audit.record(tx, {
@@ -528,6 +591,88 @@ export class AdminService {
       });
       return historico;
     });
+  }
+
+  /**
+   * Altera nome, status ou configuração. Campos secretos enviados como "[criptografado]" (o que a API
+   * devolve na leitura) ou vazios mantêm o valor já gravado.
+   */
+  async atualizarIntegracao(user: AuthUser, id: number, dto: UpdateIntegracaoDto) {
+    const atual = await this.prisma.integracoes.findFirst({ where: { id, id_cliente: user.id_cliente } });
+    if (!atual) throw new NotFoundException('Integração não encontrada');
+    await this.exigeSmtpAtivoUnico(user.id_cliente, atual.tipo, dto.status ?? atual.status, id);
+    let configuracoes: Prisma.InputJsonValue | undefined;
+    if (dto.configuracoes) {
+      if (Array.isArray(dto.configuracoes)) throw new BadRequestException('configuracoes deve ser um objeto');
+      const anterior = (atual.configuracoes ?? {}) as Record<string, unknown>;
+      const novos = { ...dto.configuracoes };
+      for (const [nome, valor] of Object.entries(novos)) {
+        if (valor === '[criptografado]' || valor === '') {
+          if (nome in anterior) novos[nome] = anterior[nome];
+          else delete novos[nome];
+        }
+      }
+      this.validarConfiguracao(atual.tipo, novos);
+      configuracoes = criptografarConfig(novos, this.segredo()) as Prisma.InputJsonValue;
+    }
+    try {
+      return await this.prisma.$transaction(async (tx) => {
+        const row = await tx.integracoes.update({
+          where: { id_cliente_id: { id_cliente: user.id_cliente, id } },
+          data: { nome: dto.nome?.trim(), status: dto.status, ...(configuracoes ? { configuracoes } : {}) },
+        });
+        await this.audit.record(tx, {
+          id_cliente: user.id_cliente,
+          acao: 'UPDATE_INTEGRATION',
+          tabela_afetada: 'integracoes',
+          registro_id: id,
+          valor_anterior: { nome: atual.nome, status: atual.status },
+          valor_novo: { nome: row.nome, status: row.status, configuracoes: mascararConfig((row.configuracoes ?? {}) as Record<string, unknown>) as Prisma.InputJsonValue },
+        });
+        return { ...row, configuracoes: mascararConfig((row.configuracoes ?? {}) as Record<string, unknown>) };
+      });
+    } catch (error) {
+      throw this.traduzir(error, 'Já existe uma integração com esse nome');
+    }
+  }
+
+  /** O envio de e-mails usa a integração SMTP ativa: ter duas ativas deixaria o remetente ambíguo. */
+  private async exigeSmtpAtivoUnico(idCliente: number, tipo: string, status: string, ignorarId?: number) {
+    if (tipo !== 'SMTP' || status !== 'ATIVO') return;
+    const outra = await this.prisma.integracoes.findFirst({
+      where: { id_cliente: idCliente, tipo: 'SMTP', status: 'ATIVO', ...(ignorarId ? { NOT: { id: ignorarId } } : {}) },
+    });
+    if (outra) throw new ConflictException(`Já existe uma integração SMTP ativa ("${outra.nome}"). Desative-a antes de ativar outra.`);
+  }
+
+  /** Cada tipo exige os campos que o conector usa; o erro aparece ao salvar, não só ao primeiro envio. */
+  private validarConfiguracao(tipo: string, cfg: Record<string, unknown>) {
+    if (tipo === 'SMTP') {
+      const port = Number(cfg.port ?? 587);
+      if (typeof cfg.host !== 'string' || !cfg.host.trim()) throw new BadRequestException('SMTP: informe o host');
+      if (!Number.isInteger(port) || port < 1 || port > 65535) throw new BadRequestException('SMTP: porta inválida');
+      if (cfg.from !== undefined && !/^[^\s@<>]+@[^\s@<>]+$|^[^<>]*<[^\s@<>]+@[^\s@<>]+>$/.test(String(cfg.from))) {
+        throw new BadRequestException('SMTP: remetente inválido (use nome@dominio ou "Nome <nome@dominio>")');
+      }
+    } else if (tipo === 'EMAIL_ENTRADA') {
+      if (typeof cfg.token !== 'string' || cfg.token.length < 16) {
+        throw new BadRequestException('E-mail de entrada: o token deve ter pelo menos 16 caracteres');
+      }
+      if (!Number.isInteger(Number(cfg.id_categoria))) {
+        throw new BadRequestException('E-mail de entrada: informe a categoria padrão (id_categoria)');
+      }
+    } else if (tipo === 'WEBHOOK') {
+      let url: URL;
+      try {
+        url = new URL(String(cfg.url ?? ''));
+      } catch {
+        throw new BadRequestException('Webhook: informe uma URL válida');
+      }
+      if (url.protocol !== 'https:' && url.protocol !== 'http:') throw new BadRequestException('Webhook: a URL deve ser http ou https');
+      if (cfg.eventos !== undefined && (!Array.isArray(cfg.eventos) || cfg.eventos.some((e) => typeof e !== 'string'))) {
+        throw new BadRequestException('Webhook: eventos deve ser uma lista de textos');
+      }
+    }
   }
 
   async auditoria(user: AuthUser, filtro: FiltroAuditoriaDto) {
@@ -833,9 +978,7 @@ export class AdminService {
 
   private async normalizarSenha(valor: string) {
     if (/^\$2[aby]\$\d{2}\$/.test(valor) && valor.length >= 59) return valor;
-    if (valor.length < 8) {
-      throw new BadRequestException('senha_hash deve ser um hash bcrypt ou uma senha de 8 caracteres');
-    }
+    exigirSenhaForte(valor);
     return bcrypt.hash(valor, 12);
   }
 

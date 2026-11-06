@@ -9,11 +9,13 @@ import { AuditModule } from './audit/audit.module.js';
 import { AuthModule } from './auth/auth.module.js';
 import { BrandingModule } from './branding/branding.module.js';
 import { CatalogoModule } from './catalogo/catalogo.module.js';
+import { CommonModule } from './common/common.module.js';
 import { CategoriasModule } from './categorias/categorias.module.js';
 import { ChamadosModule } from './chamados/chamados.module.js';
 import { DatabaseModule } from './database/database.module.js';
 import { DepartamentosModule } from './departamentos/departamentos.module.js';
 import { GruposModule } from './grupos/grupos.module.js';
+import { IntegracoesModule } from './integracoes/integracoes.module.js';
 import { KbModule } from './kb/kb.module.js';
 import { NotificacoesModule } from './notificacoes/notificacoes.module.js';
 import { PrismaModule } from './prisma/prisma.module.js';
@@ -28,6 +30,8 @@ import { UsuariosModule } from './usuarios/usuarios.module.js';
       expandVariables: true,
     }),
     PrismaModule,
+    CommonModule,
+    IntegracoesModule,
     DatabaseModule,
     AuthModule,
     AuditModule,

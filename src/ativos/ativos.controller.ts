@@ -46,6 +46,12 @@ export class AtivosController {
     return this.ativos.atualizar(user, id, dto);
   }
 
+  @Get('ativos/resumo')
+  @Roles('SOLICITANTE')
+  resumo(@CurrentUser() user: AuthUser) {
+    return this.ativos.resumo(user);
+  }
+
   @Post('ativos/relacionamentos')
   @Roles('TECNICO')
   @HttpCode(HttpStatus.CREATED)

@@ -27,7 +27,7 @@ const STATUS_USUARIO = ['ATIVO', 'DESATIVADO', 'PENDENTE_CONFIRMACAO'] as const;
 const STATUS_SIMPLES = ['ATIVO', 'INATIVO'] as const;
 const PRIORIDADES = ['CRITICA', 'ALTA', 'MEDIA', 'BAIXA'] as const;
 const TIPOS = ['INCIDENTE', 'REQUISICAO', 'AMBOS'] as const;
-const TIPOS_INTEGRACAO = ['LDAP', 'AD', 'SMTP', 'WEBHOOK'] as const;
+const TIPOS_INTEGRACAO = ['LDAP', 'AD', 'SMTP', 'WEBHOOK', 'EMAIL_ENTRADA'] as const;
 
 export class CreateClienteDto {
   @IsString()
@@ -300,6 +300,22 @@ export class CreateIntegracaoDto {
 
   @IsObject()
   configuracoes: Record<string, unknown>;
+
+  @IsOptional()
+  @IsIn(STATUS_SIMPLES)
+  status?: (typeof STATUS_SIMPLES)[number];
+}
+
+export class UpdateIntegracaoDto {
+  @IsOptional()
+  @IsString()
+  @MinLength(2)
+  @MaxLength(100)
+  nome?: string;
+
+  @IsOptional()
+  @IsObject()
+  configuracoes?: Record<string, unknown>;
 
   @IsOptional()
   @IsIn(STATUS_SIMPLES)

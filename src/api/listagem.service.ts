@@ -51,9 +51,20 @@ export class ListagemService {
   }
 
   async ativos(user: AuthUser, consulta: ConsultaLista) {
-    const where = {
+    const busca = consulta.busca?.trim().slice(0, 100);
+    const where: Prisma.ativos_cmdbWhereInput = {
       id_cliente: user.id_cliente,
       ...(user.perfil === 'SOLICITANTE' ? { id_usuario_atribuido: user.id } : {}),
+      ...(consulta.tipo_ativo ? { tipo_ativo: consulta.tipo_ativo.slice(0, 30) } : {}),
+      ...(consulta.status ? { status: consulta.status.slice(0, 30) } : {}),
+      ...(busca
+        ? {
+            OR: [
+              { nome: { contains: busca, mode: 'insensitive' } },
+              { codigo_patrimonio: { contains: busca, mode: 'insensitive' } },
+            ],
+          }
+        : {}),
     };
     const pagina = fatia(consulta.limite, consulta.pagina, 100, 200);
     const [rows, total] = await Promise.all([

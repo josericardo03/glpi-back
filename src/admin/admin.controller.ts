@@ -30,6 +30,7 @@ import {
   FiltroAuditoriaDto,
   UpdateFeriadoDto,
   UpdateHorarioDto,
+  UpdateIntegracaoDto,
   UpdatePoliticaDto,
   UpdateUsuarioAdminDto,
 } from './dto/admin.dto.js';
@@ -68,6 +69,13 @@ export class AdminController {
     @Body() dto: UpdateUsuarioAdminDto,
   ) {
     return this.admin.atualizarUsuario(user, id, dto);
+  }
+
+  @Post('usuarios/:id/mfa/resetar')
+  @Roles('ADMIN')
+  @HttpCode(HttpStatus.OK)
+  resetarMfa(@CurrentUser() user: AuthUser, @Param('id', ParseIntPipe) id: number) {
+    return this.admin.resetarMfa(user, id);
   }
 
   @Post('grupos-suporte')
@@ -201,6 +209,16 @@ export class AdminController {
   @HttpCode(HttpStatus.CREATED)
   integracoes(@CurrentUser() user: AuthUser, @Body() dto: CreateIntegracaoDto) {
     return this.admin.criarIntegracao(user, dto);
+  }
+
+  @Patch('integracoes/:id')
+  @Roles('ADMIN')
+  atualizarIntegracao(
+    @CurrentUser() user: AuthUser,
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: UpdateIntegracaoDto,
+  ) {
+    return this.admin.atualizarIntegracao(user, id, dto);
   }
 
   @Post('integracoes/:id/testar')

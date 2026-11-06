@@ -647,6 +647,14 @@ model usuarios {
   avatar_url                   String?                        @db.VarChar(255)
   data_cadastro                DateTime                       @default(now()) @db.Timestamptz(6)
   ultimo_login                 DateTime?                      @db.Timestamptz(6)
+  token_versao                 Int                            @default(0)
+  senha_alterada_em            DateTime?                      @db.Timestamptz(6)
+  mfa_ativo                    Boolean                        @default(false)
+  mfa_segredo                  String?                        @db.VarChar(255)
+  mfa_ultimo_passo             BigInt?
+  mfa_codigos_hash             String[]                       @default([])
+  sessoes                      sessoes[]
+  tokens_recuperacao           tokens_recuperacao[]
   artigos_kb                   artigos_kb[]
   ativos_cmdb                  ativos_cmdb[]
   chamados_abertos             chamados[]                     @relation("solicitante")
@@ -686,4 +694,34 @@ model worklogs {
   usuarios             usuarios @relation(fields: [id_cliente, id_tecnico], references: [id_cliente, id], onUpdate: NoAction, map: "fk_wl_tecnico")
 
   @@id([id_cliente, id], map: "pk_worklogs")
+}
+
+model sessoes {
+  id                  String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  id_cliente          Int
+  id_usuario          Int
+  token_hash          String    @unique(map: "uq_sessao_token") @db.Char(64)
+  token_hash_anterior String?   @db.Char(64)
+  criado_em           DateTime  @default(now()) @db.Timestamptz(6)
+  expira_em           DateTime  @db.Timestamptz(6)
+  ultimo_uso          DateTime  @default(now()) @db.Timestamptz(6)
+  revogado_em         DateTime? @db.Timestamptz(6)
+  endereco_ip         String?   @db.VarChar(64)
+  agente              String?   @db.VarChar(255)
+  usuarios            usuarios  @relation(fields: [id_cliente, id_usuario], references: [id_cliente, id], onDelete: Cascade, onUpdate: NoAction, map: "fk_sessao_usuario")
+
+  @@index([id_cliente, id_usuario], map: "idx_sessoes_usuario")
+}
+
+model tokens_recuperacao {
+  id         Int       @default(autoincrement())
+  id_cliente Int
+  id_usuario Int
+  token_hash String    @unique(map: "uq_token_recuperacao") @db.Char(64)
+  criado_em  DateTime  @default(now()) @db.Timestamptz(6)
+  expira_em  DateTime  @db.Timestamptz(6)
+  usado_em   DateTime? @db.Timestamptz(6)
+  usuarios   usuarios  @relation(fields: [id_cliente, id_usuario], references: [id_cliente, id], onDelete: Cascade, onUpdate: NoAction, map: "fk_token_recuperacao_usuario")
+
+  @@id([id_cliente, id], map: "pk_tokens_recuperacao")
 }

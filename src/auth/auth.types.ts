@@ -12,6 +12,8 @@ export type AuthUser = {
   perfil: PerfilUsuario;
   cargo: string;
   status: string;
+  /** Sessão (dispositivo) do token de acesso, quando houver. */
+  sid?: string;
 };
 
 export type JwtPayload = {
@@ -19,4 +21,8 @@ export type JwtPayload = {
   id_cliente: number;
   perfil: PerfilUsuario;
   email: string;
+  /** Versão dos tokens do usuário: somar 1 no banco invalida todos os tokens emitidos antes. */
+  tv: number;
+  /** Id da sessão (linha em `sessoes`). */
+  sid: string;
 };

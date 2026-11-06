@@ -14,6 +14,8 @@ export class AuditService {
       acao: string;
       tabela_afetada: string;
       registro_id?: number | null;
+      /** Autor explícito, para eventos sem usuário autenticado na requisição (login, recuperação de senha). */
+      id_usuario?: number | null;
       valor_anterior?: Prisma.InputJsonValue | null;
       valor_novo?: Prisma.InputJsonValue | null;
     },
@@ -22,7 +24,7 @@ export class AuditService {
     await writer.logs_auditoria.create({
       data: {
         id_cliente: entry.id_cliente,
-        id_usuario: ctx?.user?.id ?? null,
+        id_usuario: entry.id_usuario ?? ctx?.user?.id ?? null,
         acao: entry.acao,
         tabela_afetada: entry.tabela_afetada,
         registro_id: entry.registro_id ?? null,

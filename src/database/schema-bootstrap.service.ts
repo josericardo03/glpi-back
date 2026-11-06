@@ -23,6 +23,8 @@ export const MIGRACOES: Migracao[] = [
   { nome: '003_correcoes_dados', arquivo: 'itsm-correcoes.sql' },
   { nome: '004_indices', arquivo: 'itsm-indices.sql' },
   { nome: '005_pausa_unica_por_chamado', arquivo: 'itsm-pausa-unica.sql' },
+  { nome: '006_sla_alertas', arquivo: 'itsm-sla-alertas.sql' },
+  { nome: '007_autenticacao', arquivo: 'itsm-autenticacao.sql' },
 ];
 
 /** Identificador do lock que impede duas instâncias de migrarem ao mesmo tempo. */

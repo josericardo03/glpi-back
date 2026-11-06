@@ -1,0 +1,106 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  testes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: itsm
+          POSTGRES_PASSWORD: itsm
+          POSTGRES_DB: itsm
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U itsm -d itsm"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      DATABASE_URL: postgresql://itsm:itsm@127.0.0.1:5432/itsm
+      DIRECT_URL: postgresql://itsm:itsm@127.0.0.1:5432/itsm
+      JWT_SECRET: ci-segredo-com-mais-de-32-caracteres-aleatorios
+      SEED_ADMIN_EMAIL: admin@itsm.local
+      SEED_ADMIN_PASSWORD: Admin@123456
+      PORT: '3100'
+    steps:
+      - name: Baixar o código
+        uses: actions/checkout@v4
+
+      - name: Preparar o Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      # O package-lock foi gerado com npm 11 (o npm 10 do Node 22 não instala esse lock).
+      - name: Instalar o npm 11
+        run: npm install -g npm@11.11.0
+
+      - name: Instalar dependências
+        run: npm ci
+
+      - name: Gerar o cliente do Prisma
+        run: npx prisma generate
+
+      - name: Tipos (tsc)
+        run: npx tsc --noEmit -p tsconfig.json
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Testes unitários
+        run: npm test
+
+      - name: Build
+        run: npm run build
+
+      # A API cria o schema pelas migrações versionadas (001 em diante) e o admin do seed.
+      - name: Subir a API
+        run: |
+          LOG_FORMAT=json REDE_PERMITE_INTERNA=true SLA_VARREDURA_MS=2000 \
+          METRICS_TOKEN=ci-metricas APP_URL=http://localhost:5173 \
+          nohup node dist/main.js > api.log 2>&1 &
+          for i in $(seq 1 60); do
+            curl -sf http://127.0.0.1:3100/api/health && exit 0
+            sleep 1
+          done
+          echo "API não subiu"; cat api.log; exit 1
+
+      - name: Fluxos ponta a ponta (smoke)
+        env:
+          BASE_URL: http://127.0.0.1:3100/api
+        run: npm run test:smoke
+
+      - name: Autenticação, MFA e sessões (smoke)
+        env:
+          BASE_URL: http://127.0.0.1:3100/api
+        run: npm run test:smoke:auth
+
+      - name: Integrações (SMTP, webhook, e-mail de entrada) (smoke)
+        env:
+          BASE_URL: http://127.0.0.1:3100/api
+        run: npm run test:smoke:integracoes
+
+      - name: Métricas e health
+        run: |
+          curl -sf http://127.0.0.1:3100/api/health/live
+          curl -sf -H "Authorization: Bearer ci-metricas" http://127.0.0.1:3100/api/metrics | grep -q '^itsm_banco_up 1'
+
+      - name: Log da API (se algo falhou)
+        if: failure()
+        run: cat api.log || true

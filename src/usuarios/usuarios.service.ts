@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import bcrypt from 'bcrypt';
 import type { AuthUser } from '../auth/auth.types.js';
+import { exigirSenhaForte } from '../auth/senha.js';
 import { AuditService } from '../audit/audit.service.js';
 import { conflito } from '../common/conflito.js';
 import { PrismaService } from '../prisma/prisma.service.js';
@@ -27,6 +28,7 @@ export class UsuariosService {
 
   async criar(user: AuthUser, dto: CreateUsuarioDto) {
     if (dto.id_departamento) await this.exigeDepartamento(user.id_cliente, dto.id_departamento);
+    exigirSenhaForte(dto.password);
     const senhaHash = await bcrypt.hash(dto.password, 12);
     try {
       return await this.prisma.$transaction(async (tx) => {
@@ -68,6 +70,7 @@ export class UsuariosService {
       throw new BadRequestException('Você não pode desativar a própria conta nem alterar o próprio perfil');
     }
     if (dto.id_departamento) await this.exigeDepartamento(user.id_cliente, dto.id_departamento);
+    if (dto.password) exigirSenhaForte(dto.password);
     const senhaHash = dto.password ? await bcrypt.hash(dto.password, 12) : undefined;
     return this.prisma.$transaction(async (tx) => {
       const row = await tx.usuarios.update({
@@ -78,10 +81,14 @@ export class UsuariosService {
           perfil: dto.perfil,
           status: dto.status,
           id_departamento: dto.id_departamento,
-          ...(senhaHash ? { senha_hash: senhaHash } : {}),
+          ...(senhaHash ? { senha_hash: senhaHash, senha_alterada_em: new Date() } : {}),
+          ...(senhaHash || (dto.status && dto.status !== 'ATIVO') ? { token_versao: { increment: 1 } } : {}),
         },
         select: usuarioPublico,
       });
+      if (senhaHash || (dto.status && dto.status !== 'ATIVO')) {
+        await tx.sessoes.updateMany({ where: { id_cliente: user.id_cliente, id_usuario: id, revogado_em: null }, data: { revogado_em: new Date() } });
+      }
       await this.audit.record(tx, {
         id_cliente: user.id_cliente,
         acao: 'UPDATE_USER',

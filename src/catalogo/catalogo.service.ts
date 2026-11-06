@@ -9,6 +9,7 @@ import {
 import { Prisma } from '@prisma/client';
 import type { AuthUser } from '../auth/auth.types.js';
 import { AuditService } from '../audit/audit.service.js';
+import { EventosService } from '../integracoes/eventos.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import {
   CreateAprovacaoDto,
@@ -25,6 +26,7 @@ export class CatalogoService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
+    private readonly eventos: EventosService,
   ) {}
 
   async csat(user: AuthUser, dto: CsatDto) {
@@ -311,7 +313,7 @@ export class CatalogoService {
     if (aprovador.id === user.id) {
       throw new BadRequestException('Você não pode ser o aprovador da própria solicitação');
     }
-    return this.prisma.$transaction(async (tx) => {
+    const criada = await this.prisma.$transaction(async (tx) => {
       const row = await tx.requisicoes_aprovacao.create({
         data: {
           id_cliente: user.id_cliente,
@@ -338,6 +340,8 @@ export class CatalogoService {
       });
       return row;
     });
+    void this.eventos.aprovacaoSolicitada(criada, user.nome);
+    return criada;
   }
 
   async decidir(user: AuthUser, id: number, dto: DecisaoDto) {
@@ -392,6 +396,7 @@ export class CatalogoService {
       });
       return saved;
     });
+    void this.eventos.aprovacaoDecidida(atualizada, dto.status, user.nome);
     return atualizada;
   }
 }

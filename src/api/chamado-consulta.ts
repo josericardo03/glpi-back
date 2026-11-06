@@ -16,6 +16,8 @@ export type ConsultaLista = {
   status?: string;
   prioridade?: string;
   tipo?: string;
+  /** Ativos: tipo do ativo (valor da API, ex.: NOTEBOOK). */
+  tipo_ativo?: string;
   id_categoria?: string;
   id_grupo?: string;
   id_tecnico?: string;

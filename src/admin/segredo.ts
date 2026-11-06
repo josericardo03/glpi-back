@@ -78,6 +78,15 @@ export function segredosDeIntegracao(env: { INTEGRACOES_SECRET?: string; JWT_SEC
   return [env.INTEGRACOES_SECRET, env.JWT_SECRET].filter((s): s is string => !!s);
 }
 
+/** Criptografa um texto avulso (ex.: segredo de MFA) com o mesmo esquema das integrações. */
+export function cifrarTexto(valor: string, segredo: string): string {
+  return String(criptografarConfig({ password: valor }, segredo).password);
+}
+
+export function decifrarTexto(cifrado: string, segredos: string | string[]): string {
+  return String(descriptografarConfig({ password: cifrado }, segredos).password);
+}
+
 export function mascararConfig(config: Record<string, unknown>) {
   const saida: Record<string, unknown> = {};
   for (const [nome, valor] of Object.entries(config)) {
