@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import type { AuthUser } from '../auth/auth.types.js';
 import { AuditService } from '../audit/audit.service.js';
 import { conflito } from '../common/conflito.js';
@@ -249,6 +249,33 @@ export class KbService {
       });
       return row;
     });
+  }
+
+  /**
+   * Exclui um rascunho (com seus anexos e votos, em cascata). Só o autor, ou um gestor, e só enquanto
+   * o artigo não foi publicado: o editor usa isto para descartar o rascunho criado só para guardar imagens.
+   */
+  async removerRascunho(user: AuthUser, id: number) {
+    const artigo = await this.prisma.artigos_kb.findFirst({ where: { id, id_cliente: user.id_cliente } });
+    if (!artigo) throw new NotFoundException('Artigo não encontrado');
+    if (artigo.status !== 'RASCUNHO') {
+      throw new ConflictException('Só é possível excluir artigos em rascunho. Arquive o artigo para tirá-lo de circulação.');
+    }
+    if (artigo.id_autor !== user.id && user.perfil !== 'GESTOR' && user.perfil !== 'ADMIN') {
+      throw new ForbiddenException('Só o autor ou um gestor pode excluir este rascunho');
+    }
+    await this.prisma.$transaction(async (tx) => {
+      await tx.artigos_kb.delete({ where: { id_cliente_id: { id_cliente: user.id_cliente, id } } });
+      await this.audit.record(tx, {
+        id_cliente: user.id_cliente,
+        acao: 'DELETE_KB_ARTICLE',
+        tabela_afetada: 'artigos_kb',
+        registro_id: id,
+        valor_anterior: { titulo: artigo.titulo, status: artigo.status, id_autor: artigo.id_autor },
+        valor_novo: null,
+      });
+    });
+    return { removido: true };
   }
 
   async visualizar(user: AuthUser, id: number) {

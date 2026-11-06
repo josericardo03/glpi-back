@@ -38,6 +38,7 @@ export class CreateChamadoDto {
 
   @IsString()
   @MinLength(3)
+  @MaxLength(10000)
   descricao: string;
 
   @Type(() => Number)
@@ -105,6 +106,7 @@ export class StatusChamadoDto {
 export class ComentarioDto {
   @IsString()
   @MinLength(1)
+  @MaxLength(5000)
   mensagem: string;
 
   @IsOptional()

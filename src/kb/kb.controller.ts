@@ -161,6 +161,12 @@ export class ArtigosController {
     return this.kb.feedback(user, id, dto, 'ADD_KB_FEEDBACK');
   }
 
+  @Delete('artigos-kb/:id')
+  @Roles('TECNICO')
+  removerRascunho(@CurrentUser() user: AuthUser, @Param('id', ParseIntPipe) id: number) {
+    return this.kb.removerRascunho(user, id);
+  }
+
   @Post('artigos-kb/:id/visualizar')
   @Roles('SOLICITANTE')
   @HttpCode(HttpStatus.OK)
