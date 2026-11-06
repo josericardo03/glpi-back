@@ -5,6 +5,7 @@ import { AuditService } from '../audit/audit.service.js';
 import { conflito } from '../common/conflito.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { fatia } from '../common/paginacao.js';
+import { MapasService } from './mapas.service.js';
 import {
   CreateAtivoDto,
   CreateEspecificacaoDto,
@@ -18,6 +19,7 @@ export class AtivosService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
+    private readonly mapas: MapasService,
   ) {}
 
   /** Totais do inventário para os cartões da tela (a lista em si é paginada no servidor). */
@@ -119,14 +121,22 @@ export class AtivosService {
       throw new BadRequestException('Um ativo não pode depender dele mesmo');
     }
     await this.exigirAtivos(user.id_cliente, [dto.id_ativo_origem, dto.id_ativo_destino]);
+    const idMapa = await this.mapas.resolver(this.prisma, user.id_cliente, dto.id_mapa);
     const repetido = await this.prisma.relacionamentos_ativos.findFirst({
       where: {
         id_cliente: user.id_cliente,
         id_ativo_origem: dto.id_ativo_origem,
         id_ativo_destino: dto.id_ativo_destino,
       },
+      include: { mapa: { select: { nome: true } } },
     });
-    if (repetido) throw new ConflictException('Essa dependência já está cadastrada');
+    if (repetido) {
+      throw new ConflictException(
+        repetido.id_mapa === idMapa
+          ? 'Essa dependência já está cadastrada'
+          : `Essa dependência já está cadastrada no mapa "${repetido.mapa.nome}"`,
+      );
+    }
     try {
       return await this.prisma.$transaction(async (tx) => {
         const row = await tx.relacionamentos_ativos.create({
@@ -134,6 +144,7 @@ export class AtivosService {
             id_cliente: user.id_cliente,
             id_ativo_origem: dto.id_ativo_origem,
             id_ativo_destino: dto.id_ativo_destino,
+            id_mapa: idMapa,
             tipo_relacionamento: dto.tipo_relacionamento,
           },
           include: includePontas,
@@ -147,6 +158,7 @@ export class AtivosService {
           valor_novo: {
             id_ativo_origem: dto.id_ativo_origem,
             id_ativo_destino: dto.id_ativo_destino,
+            id_mapa: idMapa,
             tipo_relacionamento: dto.tipo_relacionamento,
           },
         });
@@ -157,8 +169,8 @@ export class AtivosService {
     }
   }
 
-  async listarRelacionamentos(user: AuthUser, limite?: string, pagina?: string) {
-    const where = { id_cliente: user.id_cliente };
+  async listarRelacionamentos(user: AuthUser, limite?: string, pagina?: string, idMapa?: number) {
+    const where = { id_cliente: user.id_cliente, ...(idMapa ? { id_mapa: idMapa } : {}) };
     const faixa = fatia(limite, pagina, 100, 200);
     const [rows, total] = await Promise.all([
       this.prisma.relacionamentos_ativos.findMany({
@@ -205,7 +217,8 @@ export class AtivosService {
     return { removido: true };
   }
 
-  async impacto(user: AuthUser, id: number) {
+  /** Sem `idMapa`, considera todas as dependências; com ele, só as do mapa. */
+  async impacto(user: AuthUser, id: number, idMapa?: number) {
     const ativo = await this.prisma.ativos_cmdb.findFirst({
       where: { id, id_cliente: user.id_cliente },
       select: { id: true, nome: true, tipo_ativo: true },
@@ -222,6 +235,7 @@ export class AtivosService {
         WHERE r.id_cliente = ${user.id_cliente}
           AND r.id_ativo_destino = ${id}
           AND r.tipo_relacionamento = 'DEPENDE_DE'
+          AND (${idMapa ?? null}::int IS NULL OR r.id_mapa = ${idMapa ?? null}::int)
         UNION ALL
         SELECT r.id_ativo_origem,
                c.nivel + 1,
@@ -230,6 +244,7 @@ export class AtivosService {
         JOIN cadeia c ON c.id = r.id_ativo_destino
         WHERE r.id_cliente = ${user.id_cliente}
           AND r.tipo_relacionamento = 'DEPENDE_DE'
+          AND (${idMapa ?? null}::int IS NULL OR r.id_mapa = ${idMapa ?? null}::int)
           AND NOT (r.id_ativo_origem = ANY (c.visitados))
           AND c.nivel < 20
       ),
@@ -389,6 +404,7 @@ type RelacionamentoComPontas = {
   id_cliente: number;
   id_ativo_origem: number;
   id_ativo_destino: number;
+  id_mapa: number;
   tipo_relacionamento: string;
   data_criacao: Date;
   origem: { id: number; nome: string; tipo_ativo: string };
@@ -400,6 +416,7 @@ function formatarRelacionamento(row: RelacionamentoComPontas) {
     id_cliente: row.id_cliente,
     id_ativo_origem: row.id_ativo_origem,
     id_ativo_destino: row.id_ativo_destino,
+    id_mapa: row.id_mapa,
     tipo_relacionamento: row.tipo_relacionamento,
     data_criacao: row.data_criacao,
     origem: row.origem,

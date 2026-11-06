@@ -19,15 +19,54 @@ import type { AuthUser } from '../auth/auth.types.js';
 import {
   CreateAtivoDto,
   CreateEspecificacaoDto,
+  CreateMapaDto,
   CreateManutencaoDto,
   CreateRelacionamentoDto,
   UpdateAtivoDto,
+  UpdateMapaDto,
 } from './dto/ativo.dto.js';
 import { AtivosService } from './ativos.service.js';
+import { MapasService } from './mapas.service.js';
 
 @Controller()
 export class AtivosController {
-  constructor(private readonly ativos: AtivosService) {}
+  constructor(
+    private readonly ativos: AtivosService,
+    private readonly mapas: MapasService,
+  ) {}
+
+  @Get('mapas-software')
+  @Roles('TECNICO')
+  listarMapas(@CurrentUser() user: AuthUser) {
+    return this.mapas.listar(user);
+  }
+
+  @Post('mapas-software')
+  @Roles('TECNICO')
+  @HttpCode(HttpStatus.CREATED)
+  criarMapa(@CurrentUser() user: AuthUser, @Body() dto: CreateMapaDto) {
+    return this.mapas.criar(user, dto);
+  }
+
+  @Patch('mapas-software/:id')
+  @Roles('TECNICO')
+  atualizarMapa(
+    @CurrentUser() user: AuthUser,
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: UpdateMapaDto,
+  ) {
+    return this.mapas.atualizar(user, id, dto);
+  }
+
+  @Delete('mapas-software/:id')
+  @Roles('TECNICO')
+  removerMapa(
+    @CurrentUser() user: AuthUser,
+    @Param('id', ParseIntPipe) id: number,
+    @Query('com_ligacoes') comLigacoes: string | undefined,
+  ) {
+    return this.mapas.remover(user, id, comLigacoes === 'true');
+  }
 
   @Post('ativos')
   @Roles('TECNICO')
@@ -65,9 +104,10 @@ export class AtivosController {
     @CurrentUser() user: AuthUser,
     @Query('limite') limite: string | undefined,
     @Query('pagina') pagina: string | undefined,
+    @Query('id_mapa', new ParseIntPipe({ optional: true })) idMapa: number | undefined,
     @Res({ passthrough: true }) res: Response,
   ) {
-    const { rows, total } = await this.ativos.listarRelacionamentos(user, limite, pagina);
+    const { rows, total } = await this.ativos.listarRelacionamentos(user, limite, pagina, idMapa);
     res.setHeader('X-Total-Count', String(total));
     return rows;
   }
@@ -84,8 +124,12 @@ export class AtivosController {
 
   @Get('ativos/:id/impacto')
   @Roles('TECNICO')
-  impacto(@CurrentUser() user: AuthUser, @Param('id', ParseIntPipe) id: number) {
-    return this.ativos.impacto(user, id);
+  impacto(
+    @CurrentUser() user: AuthUser,
+    @Param('id', ParseIntPipe) id: number,
+    @Query('id_mapa', new ParseIntPipe({ optional: true })) idMapa: number | undefined,
+  ) {
+    return this.ativos.impacto(user, id, idMapa);
   }
 
   @Post('ativos/:id/especificacoes')

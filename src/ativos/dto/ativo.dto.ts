@@ -90,6 +90,42 @@ export class CreateRelacionamentoDto {
 
   @IsIn(['DEPENDE_DE'])
   tipo_relacionamento: 'DEPENDE_DE';
+
+  /** Mapa em que a dependência entra. Sem ele, vai para o mapa "Principal" (criado se não existir). */
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  id_mapa?: number;
+}
+
+export class CreateMapaDto {
+  @IsString()
+  @MinLength(2)
+  @MaxLength(100)
+  nome: string;
+
+  @IsOptional()
+  @Transform(({ value }) => (value === '' ? null : value))
+  @ValidateIf((_, value) => value !== undefined && value !== null)
+  @IsString()
+  @MaxLength(500)
+  descricao?: string | null;
+}
+
+export class UpdateMapaDto {
+  @IsOptional()
+  @IsString()
+  @MinLength(2)
+  @MaxLength(100)
+  nome?: string;
+
+  @IsOptional()
+  @Transform(({ value }) => (value === '' ? null : value))
+  @ValidateIf((_, value) => value !== undefined && value !== null)
+  @IsString()
+  @MaxLength(500)
+  descricao?: string | null;
 }
 
 

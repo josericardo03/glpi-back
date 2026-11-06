@@ -229,6 +229,7 @@ model clientes {
   pesquisas_csat               pesquisas_csat[]
   politicas_sla                politicas_sla[]
   problemas                    problemas[]
+  mapas_software               mapas_software[]
   relacionamentos_ativos       relacionamentos_ativos[]
   requisicoes_aprovacao        requisicoes_aprovacao[]
   usuarios                     usuarios[]
@@ -598,12 +599,26 @@ model problemas {
   @@id([id_cliente, id], map: "pk_problemas")
 }
 
+model mapas_software {
+  id                     Int                      @unique(map: "uq_mapas_software_id") @default(autoincrement())
+  id_cliente             Int
+  nome                   String                   @db.VarChar(100)
+  descricao              String?                  @db.VarChar(500)
+  data_criacao           DateTime                 @default(now()) @db.Timestamptz(6)
+  clientes               clientes                 @relation(fields: [id_cliente], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_mapa_cliente")
+  relacionamentos_ativos relacionamentos_ativos[]
+
+  @@id([id_cliente, id], map: "pk_mapas_software")
+}
+
 model relacionamentos_ativos {
   id_cliente          Int
   id_ativo_origem     Int
   id_ativo_destino    Int
-  tipo_relacionamento String      @db.VarChar(50)
-  data_criacao        DateTime    @default(now()) @db.Timestamptz(6)
+  id_mapa             Int
+  tipo_relacionamento String         @db.VarChar(50)
+  data_criacao        DateTime       @default(now()) @db.Timestamptz(6)
+  mapa                mapas_software @relation(fields: [id_cliente, id_mapa], references: [id_cliente, id], onDelete: Cascade, onUpdate: NoAction, map: "fk_ra_mapa")
   clientes            clientes    @relation(fields: [id_cliente], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_ra_cliente")
   destino             ativos_cmdb @relation("ativo_destino", fields: [id_cliente, id_ativo_destino], references: [id_cliente, id], onDelete: Cascade, onUpdate: NoAction, map: "fk_ra_destino")
   origem              ativos_cmdb @relation("ativo_origem", fields: [id_cliente, id_ativo_origem], references: [id_cliente, id], onDelete: Cascade, onUpdate: NoAction, map: "fk_ra_origem")

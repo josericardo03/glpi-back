@@ -258,6 +258,39 @@ async function main() {
   confere('solicitante não vê ativo alheio', (await api(S, 'GET', `/ativos/${ativo.dados.id}`)).status === 404);
   confere('lista de relacionamentos', (await api(T, 'GET', '/ativos/relacionamentos')).status === 200);
 
+  // mapas de software: várias coleções nomeadas de dependências
+  const mapaPadrao = (await api(T, 'GET', '/mapas-software')).dados?.find((m) => m.nome === 'Principal');
+  confere('mapa Principal criado com a primeira dependência', !!mapaPadrao && mapaPadrao.total_ligacoes >= 1, mapaPadrao);
+  const relPadrao = (await api(T, 'GET', '/ativos/relacionamentos')).dados;
+  confere('relacionamento informa o mapa', relPadrao.length >= 1 && relPadrao.every((r) => typeof r.id_mapa === 'number'), relPadrao);
+  const mapaRede = await api(T, 'POST', '/mapas-software', { nome: `Rede ${sufixo}`, descricao: 'Dependências da rede' });
+  confere('cria mapa', mapaRede.status === 201 && mapaRede.dados.total_ligacoes === 0, mapaRede);
+  confere('nome de mapa repetido (sem diferenciar maiúsculas) é 409', (await api(T, 'POST', '/mapas-software', { nome: `REDE ${sufixo}` })).status === 409);
+  confere('nome de mapa curto demais é 400', (await api(T, 'POST', '/mapas-software', { nome: 'x' })).status === 400);
+  const ativo3 = await api(T, 'POST', '/ativos', { codigo_patrimonio: `PAT3-${sufixo}`, nome: 'Firewall', tipo_ativo: 'OUTRO' });
+  confere('cria ativo 3', ativo3.status === 201, ativo3);
+  const relRede = await api(T, 'POST', '/ativos/relacionamentos', { id_ativo_origem: ativo3.dados.id, id_ativo_destino: ativo.dados.id, id_mapa: mapaRede.dados.id, tipo_relacionamento: 'DEPENDE_DE' });
+  confere('dependência no mapa escolhido', relRede.status === 201 && relRede.dados.id_mapa === mapaRede.dados.id, relRede);
+  const repetidaOutroMapa = await api(T, 'POST', '/ativos/relacionamentos', { id_ativo_origem: ativo2.dados.id, id_ativo_destino: ativo.dados.id, id_mapa: mapaRede.dados.id, tipo_relacionamento: 'DEPENDE_DE' });
+  confere('dependência já existente em outro mapa é 409 e diz qual', repetidaOutroMapa.status === 409 && String(repetidaOutroMapa.dados?.message).includes('Principal'), repetidaOutroMapa.dados);
+  confere('mapa inexistente é 404', (await api(T, 'POST', '/ativos/relacionamentos', { id_ativo_origem: ativo3.dados.id, id_ativo_destino: ativo2.dados.id, id_mapa: 999999, tipo_relacionamento: 'DEPENDE_DE' })).status === 404);
+  const soRede = await api(T, 'GET', `/ativos/relacionamentos?id_mapa=${mapaRede.dados.id}`);
+  confere('lista de dependências filtra por mapa', soRede.status === 200 && soRede.dados.length === 1 && soRede.headers.get('x-total-count') === '1' && soRede.dados[0].origem.id === ativo3.dados.id, soRede.dados);
+  confere('filtro de mapa inválido é 400', (await api(T, 'GET', '/ativos/relacionamentos?id_mapa=abc')).status === 400);
+  const impRede = await api(T, 'GET', `/ativos/${ativo.dados.id}/impacto?id_mapa=${mapaRede.dados.id}`);
+  const impPadrao = await api(T, 'GET', `/ativos/${ativo.dados.id}/impacto?id_mapa=${mapaPadrao.id}`);
+  const impTodos = await api(T, 'GET', `/ativos/${ativo.dados.id}/impacto`);
+  confere('impacto por mapa só considera as dependências do mapa', impRede.dados?.afetados?.length === 1 && impRede.dados.afetados[0].id === ativo3.dados.id && impPadrao.dados?.afetados?.length === 1 && impPadrao.dados.afetados[0].id === ativo2.dados.id && impTodos.dados?.afetados?.length === 2, { impRede: impRede.dados, impPadrao: impPadrao.dados, impTodos: impTodos.dados });
+  const renomeado = await api(T, 'PATCH', `/mapas-software/${mapaRede.dados.id}`, { nome: `Rede e firewall ${sufixo}`, descricao: '' });
+  confere('renomeia mapa e limpa a descrição', renomeado.status === 200 && renomeado.dados.nome.startsWith('Rede e firewall') && renomeado.dados.descricao === null && renomeado.dados.total_ligacoes === 1, renomeado.dados);
+  confere('renomear para um nome já usado é 409', (await api(T, 'PATCH', `/mapas-software/${mapaRede.dados.id}`, { nome: 'principal' })).status === 409);
+  confere('solicitante não vê os mapas', (await api(S, 'GET', '/mapas-software')).status === 403);
+  confere('apagar mapa com dependências exige confirmação (409)', (await api(T, 'DELETE', `/mapas-software/${mapaRede.dados.id}`)).status === 409);
+  const apagado = await api(T, 'DELETE', `/mapas-software/${mapaRede.dados.id}?com_ligacoes=true`);
+  confere('apaga o mapa junto com as dependências', apagado.status === 200 && apagado.dados.ligacoes_removidas === 1, apagado.dados);
+  confere('depois de apagar, o impacto geral volta a 1', (await api(T, 'GET', `/ativos/${ativo.dados.id}/impacto`)).dados?.afetados?.length === 1);
+  confere('apagar mapa que não existe é 404', (await api(T, 'DELETE', `/mapas-software/${mapaRede.dados.id}`)).status === 404);
+
   // filtros e totais no servidor (ativos): busca, tipo e resumo
   const buscaSwitch = await api(T, 'GET', `/ativos?busca=PAT-${sufixo}`);
   confere('ativos: busca por código filtra no servidor', buscaSwitch.status === 200 && buscaSwitch.dados.length === 1 && buscaSwitch.headers.get('x-total-count') === '1', buscaSwitch.dados);
