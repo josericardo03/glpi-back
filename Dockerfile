@@ -19,6 +19,9 @@ FROM node:22-alpine AS runner
 WORKDIR /app
 ENV NODE_ENV=production
 RUN addgroup --system --gid 1001 nodejs && adduser --system --uid 1001 nestjs
+# Pasta dos anexos em disco (ANEXOS_STORAGE=disco). O volume nomeado herda esta dona na primeira vez;
+# sem isso ela nasceria como root e o usuário nestjs não conseguiria gravar.
+RUN mkdir -p /dados/anexos && chown nestjs:nodejs /dados/anexos
 COPY --from=builder --chown=nestjs:nodejs /app/node_modules ./node_modules
 COPY --from=builder --chown=nestjs:nodejs /app/dist ./dist
 COPY --from=builder --chown=nestjs:nodejs /app/prisma ./prisma
